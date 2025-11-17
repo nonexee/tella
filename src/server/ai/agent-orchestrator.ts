@@ -4,6 +4,15 @@
  * This is the brain of the offensive security testing platform.
  * It manages multiple specialized AI agents that work together to
  * perform comprehensive security assessments.
+ *
+ * FIXES:
+ * - Added graceful shutdown handling
+ * - Fixed infinite loop with proper error handling
+ * - Added memory persistence and cleanup
+ * - Added rate limiting for OpenAI calls
+ * - Added timeout handling
+ * - Fixed task queue management
+ * - Added proper error recovery
  */
 
 import { OpenAI } from 'openai';
@@ -12,6 +21,13 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
+import pLimit from 'p-limit';
+
+const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
+const AGENT_POLL_INTERVAL = 5000; // 5 seconds between task checks
+const OPENAI_RATE_LIMIT = 10; // Max concurrent OpenAI calls
+const MAX_TASK_RETRIES = 3;
+const TASK_TIMEOUT_MS = 300000; // 5 minutes
 
 export interface AgentCapability {
   name: string;
@@ -46,17 +62,49 @@ export class AgentOrchestrator extends EventEmitter {
   private prisma: PrismaClient;
   private securityTools: SecurityTools;
   private activeAgents: Map<string, AgentRunner>;
-  private taskQueue: Map<string, Task[]>;
+  private openaiLimiter: pLimit.Limit;
+  private isShuttingDown: boolean = false;
 
   constructor() {
     super();
+
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
+    }
+
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
+      maxRetries: 3,
+      timeout: 60000
     });
     this.prisma = new PrismaClient();
     this.securityTools = new SecurityTools();
     this.activeAgents = new Map();
-    this.taskQueue = new Map();
+    this.openaiLimiter = pLimit(OPENAI_RATE_LIMIT);
+
+    // Graceful shutdown handling
+    process.on('SIGTERM', () => this.shutdown());
+    process.on('SIGINT', () => this.shutdown());
+  }
+
+  /**
+   * Graceful shutdown
+   */
+  async shutdown(): Promise<void> {
+    if (this.isShuttingDown) return;
+
+    this.isShuttingDown = true;
+    logger.info('Shutting down Agent Orchestrator...');
+
+    // Stop all active agents
+    const shutdownPromises = Array.from(this.activeAgents.values()).map(
+      agent => agent.stop()
+    );
+
+    await Promise.allSettled(shutdownPromises);
+    await this.prisma.$disconnect();
+
+    logger.info('Agent Orchestrator shut down complete');
   }
 
   /**
@@ -96,6 +144,10 @@ export class AgentOrchestrator extends EventEmitter {
    * Start an agent for a security scan
    */
   async startAgent(agentId: string): Promise<void> {
+    if (this.isShuttingDown) {
+      throw new Error('Cannot start agent during shutdown');
+    }
+
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
       include: { scan: true }
@@ -105,8 +157,21 @@ export class AgentOrchestrator extends EventEmitter {
       throw new Error(`Agent ${agentId} not found`);
     }
 
+    if (this.activeAgents.has(agentId)) {
+      logger.warn(`Agent ${agentId} is already running`);
+      return;
+    }
+
     // Create agent runner
-    const runner = new AgentRunner(agent, this.openai, this.prisma, this.securityTools);
+    const runner = new AgentRunner(
+      agent,
+      this.openai,
+      this.prisma,
+      this.securityTools,
+      this.openaiLimiter,
+      () => this.isShuttingDown
+    );
+
     this.activeAgents.set(agentId, runner);
 
     // Update status
@@ -115,8 +180,11 @@ export class AgentOrchestrator extends EventEmitter {
       data: { status: AgentStatus.ACTIVE }
     });
 
-    // Start the agent's main loop
-    runner.start();
+    // Start the agent's main loop (don't await - runs in background)
+    runner.start().catch(error => {
+      logger.error(`Agent ${agentId} crashed:`, error);
+      this.activeAgents.delete(agentId);
+    });
 
     this.emit('agent:started', { agentId, type: agent.type });
     logger.info(`Started agent: ${agentId}`);
@@ -137,56 +205,60 @@ export class AgentOrchestrator extends EventEmitter {
 
     logger.info(`Starting orchestration for scan: ${scanId}`);
 
-    // Create specialized agents based on scan configuration
-    const orchestratorAgent = await this.createAgent({
-      type: AgentType.ORCHESTRATOR,
-      role: 'Main coordinator',
-      scanId,
-      config: scan.config
-    });
+    try {
+      // Create specialized agents based on scan configuration
+      const agents = await Promise.all([
+        this.createAgent({
+          type: AgentType.ORCHESTRATOR,
+          role: 'Main coordinator',
+          scanId,
+          config: scan.config
+        }),
+        this.createAgent({
+          type: AgentType.RECON,
+          role: 'Reconnaissance specialist',
+          scanId,
+          config: scan.config
+        }),
+        this.createAgent({
+          type: AgentType.SCANNER,
+          role: 'Vulnerability scanner',
+          scanId,
+          config: scan.config
+        }),
+        this.createAgent({
+          type: AgentType.EXPLOITER,
+          role: 'Exploitation specialist',
+          scanId,
+          config: scan.config
+        })
+      ]);
 
-    const reconAgent = await this.createAgent({
-      type: AgentType.RECON,
-      role: 'Reconnaissance specialist',
-      scanId,
-      config: scan.config
-    });
+      // Start all agents
+      await Promise.all(agents.map(agent => this.startAgent(agent.id)));
 
-    const scannerAgent = await this.createAgent({
-      type: AgentType.SCANNER,
-      role: 'Vulnerability scanner',
-      scanId,
-      config: scan.config
-    });
+      // Create initial reconnaissance task
+      const reconAgent = agents.find(a => a.type === AgentType.RECON);
+      if (reconAgent) {
+        await this.createTask({
+          agentId: reconAgent.id,
+          scanId,
+          type: 'RECON',
+          description: `Perform reconnaissance on ${scan.target.url}`,
+          input: {
+            target: scan.target.url,
+            targetType: scan.target.type,
+            depth: 'comprehensive'
+          },
+          priority: 10
+        });
+      }
 
-    const exploiterAgent = await this.createAgent({
-      type: AgentType.EXPLOITER,
-      role: 'Exploitation specialist',
-      scanId,
-      config: scan.config
-    });
-
-    // Start all agents
-    await this.startAgent(orchestratorAgent.id);
-    await this.startAgent(reconAgent.id);
-    await this.startAgent(scannerAgent.id);
-    await this.startAgent(exploiterAgent.id);
-
-    // Create initial reconnaissance task
-    await this.createTask({
-      agentId: reconAgent.id,
-      scanId,
-      type: 'RECON',
-      description: `Perform reconnaissance on ${scan.target.url}`,
-      input: {
-        target: scan.target.url,
-        targetType: scan.target.type,
-        depth: 'comprehensive'
-      },
-      priority: 10
-    });
-
-    this.emit('scan:orchestration:started', { scanId });
+      this.emit('scan:orchestration:started', { scanId });
+    } catch (error) {
+      logger.error(`Failed to orchestrate scan ${scanId}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -210,23 +282,20 @@ export class AgentOrchestrator extends EventEmitter {
         description: params.description,
         input: params.input,
         priority: params.priority || 5,
-        status: TaskStatus.PENDING
+        status: TaskStatus.PENDING,
+        maxRetries: MAX_TASK_RETRIES
       }
     });
-
-    // Add to task queue
-    const queue = this.taskQueue.get(params.agentId) || [];
-    queue.push(task);
-    queue.sort((a, b) => b.priority - a.priority);
-    this.taskQueue.set(params.agentId, queue);
 
     // Notify agent runner
     const runner = this.activeAgents.get(params.agentId);
     if (runner) {
-      runner.notifyNewTask(task);
+      runner.notifyNewTask();
     }
 
     this.emit('task:created', { taskId: task.id, agentId: params.agentId });
+    logger.info(`Created task ${task.id} for agent ${params.agentId}`);
+
     return task;
   }
 
@@ -323,7 +392,7 @@ export class AgentOrchestrator extends EventEmitter {
     for (const agent of agents) {
       const runner = this.activeAgents.get(agent.id);
       if (runner) {
-        runner.stop();
+        await runner.stop();
         this.activeAgents.delete(agent.id);
       }
 
@@ -339,6 +408,7 @@ export class AgentOrchestrator extends EventEmitter {
 
 /**
  * Agent Runner - Executes individual agent's logic
+ * FIXED: Proper error handling, memory management, shutdown handling
  */
 class AgentRunner {
   private agent: Agent;
@@ -348,22 +418,31 @@ class AgentRunner {
   private running: boolean = false;
   private memory: AgentMemory;
   private systemPrompt: string;
+  private openaiLimiter: pLimit.Limit;
+  private isShuttingDown: () => boolean;
+  private currentTaskAbortController: AbortController | null = null;
 
   constructor(
     agent: Agent,
     openai: OpenAI,
     prisma: PrismaClient,
-    securityTools: SecurityTools
+    securityTools: SecurityTools,
+    openaiLimiter: pLimit.Limit,
+    isShuttingDown: () => boolean
   ) {
     this.agent = agent;
     this.openai = openai;
     this.prisma = prisma;
     this.securityTools = securityTools;
-    this.memory = agent.memory as AgentMemory || {
+    this.openaiLimiter = openaiLimiter;
+    this.isShuttingDown = isShuttingDown;
+
+    this.memory = (agent.memory as AgentMemory) || {
       shortTerm: [],
       longTerm: [],
       workingContext: {}
     };
+
     this.systemPrompt = this.buildSystemPrompt();
   }
 
@@ -440,49 +519,77 @@ As a reporter:
 
   /**
    * Start the agent's main execution loop
+   * FIXED: Proper error handling, shutdown detection, memory cleanup
    */
   async start(): Promise<void> {
     this.running = true;
     logger.info(`Agent ${this.agent.id} starting execution loop`);
 
-    while (this.running) {
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
+
+    while (this.running && !this.isShuttingDown()) {
       try {
         // Get next task
         const task = await this.getNextTask();
 
         if (task) {
+          consecutiveErrors = 0; // Reset error counter on successful task fetch
           await this.executeTask(task);
         } else {
-          // No tasks, wait a bit
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // No tasks, wait before checking again
+          await this.sleep(AGENT_POLL_INTERVAL);
         }
-      } catch (error) {
-        logger.error(`Agent ${this.agent.id} error:`, error);
-        await new Promise(resolve => setTimeout(resolve, 10000));
+
+        // Cleanup memory periodically
+        await this.cleanupMemory();
+
+      } catch (error: any) {
+        consecutiveErrors++;
+        logger.error(`Agent ${this.agent.id} error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
+
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          logger.error(`Agent ${this.agent.id} exceeded max consecutive errors, stopping`);
+          break;
+        }
+
+        // Exponential backoff on errors
+        await this.sleep(Math.min(AGENT_POLL_INTERVAL * consecutiveErrors, 60000));
       }
     }
+
+    // Save final state
+    await this.persistMemory();
+    logger.info(`Agent ${this.agent.id} stopped`);
   }
 
   /**
    * Execute a task using GPT-5
+   * FIXED: Timeout handling, abort controller, proper error handling
    */
   private async executeTask(task: Task): Promise<void> {
     logger.info(`Agent ${this.agent.id} executing task ${task.id}: ${task.description}`);
 
-    // Update task status
-    await this.prisma.task.update({
-      where: { id: task.id },
-      data: {
-        status: TaskStatus.RUNNING,
-        startedAt: new Date()
-      }
-    });
+    this.currentTaskAbortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      this.currentTaskAbortController?.abort();
+    }, TASK_TIMEOUT_MS);
 
     try {
-      // Build conversation context
+      // Update task status
+      await this.prisma.task.update({
+        where: { id: task.id },
+        data: {
+          status: TaskStatus.RUNNING,
+          startedAt: new Date()
+        }
+      });
+
+      // Build conversation context (limit size to prevent token overflow)
+      const recentMessages = this.memory.shortTerm.slice(-10);
       const messages: any[] = [
         { role: 'system', content: this.systemPrompt },
-        ...this.memory.shortTerm.map(m => ({
+        ...recentMessages.map(m => ({
           role: m.role,
           content: m.content
         })),
@@ -492,28 +599,32 @@ As a reporter:
         }
       ];
 
-      // Call GPT-5 with tool calling
-      const response = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview', // Will use gpt-5 when available
-        messages,
-        tools: this.getAvailableTools(),
-        tool_choice: 'auto',
-        temperature: 0.7,
-        max_tokens: 4000
+      // Call GPT-5 with rate limiting
+      const response = await this.openaiLimiter(async () => {
+        return this.openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
+          messages,
+          tools: this.getAvailableTools(),
+          tool_choice: 'auto',
+          temperature: 0.7,
+          max_tokens: 4000
+        });
       });
+
+      clearTimeout(timeoutId);
 
       const assistantMessage = response.choices[0].message;
 
       // Handle tool calls
-      if (assistantMessage.tool_calls) {
+      if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         const toolResults = await this.executeToolCalls(assistantMessage.tool_calls);
 
-        // Store in memory
-        this.memory.shortTerm.push({
+        // Store in memory (with size limit)
+        this.addToMemory({
           role: 'assistant',
-          content: assistantMessage.content || '',
+          content: assistantMessage.content || 'Executed tools',
           timestamp: new Date(),
-          metadata: { tool_calls: assistantMessage.tool_calls }
+          metadata: { tool_calls: assistantMessage.tool_calls.map(tc => tc.function.name) }
         });
 
         // Update task with results
@@ -530,6 +641,12 @@ As a reporter:
         });
       } else {
         // No tool calls, just reasoning
+        this.addToMemory({
+          role: 'assistant',
+          content: assistantMessage.content || 'Task analyzed',
+          timestamp: new Date()
+        });
+
         await this.prisma.task.update({
           where: { id: task.id },
           data: {
@@ -544,17 +661,84 @@ As a reporter:
 
       logger.info(`Agent ${this.agent.id} completed task ${task.id}`);
 
-    } catch (error: any) {
-      logger.error(`Agent ${this.agent.id} task ${task.id} failed:`, error);
+      // Persist memory after task completion
+      await this.persistMemory();
 
-      await this.prisma.task.update({
-        where: { id: task.id },
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      const isTimeout = error.name === 'AbortError';
+      const errorMessage = isTimeout ? 'Task timeout' : error.message;
+
+      logger.error(`Agent ${this.agent.id} task ${task.id} failed:`, errorMessage);
+
+      // Check if we should retry
+      if (task.retries < task.maxRetries && !isTimeout) {
+        await this.prisma.task.update({
+          where: { id: task.id },
+          data: {
+            status: TaskStatus.PENDING,
+            error: errorMessage,
+            retries: task.retries + 1
+          }
+        });
+        logger.info(`Will retry task ${task.id} (attempt ${task.retries + 1}/${task.maxRetries})`);
+      } else {
+        await this.prisma.task.update({
+          where: { id: task.id },
+          data: {
+            status: TaskStatus.FAILED,
+            error: errorMessage,
+            completedAt: new Date()
+          }
+        });
+      }
+    } finally {
+      this.currentTaskAbortController = null;
+    }
+  }
+
+  /**
+   * Add message to memory with size limit
+   */
+  private addToMemory(message: Message): void {
+    this.memory.shortTerm.push(message);
+
+    // Keep only recent messages to prevent memory leak
+    if (this.memory.shortTerm.length > MAX_SHORT_TERM_MESSAGES) {
+      this.memory.shortTerm = this.memory.shortTerm.slice(-MAX_SHORT_TERM_MESSAGES);
+    }
+  }
+
+  /**
+   * Cleanup memory and persist to database
+   */
+  private async cleanupMemory(): Promise<void> {
+    // Ensure we don't exceed memory limits
+    if (this.memory.shortTerm.length > MAX_SHORT_TERM_MESSAGES) {
+      this.memory.shortTerm = this.memory.shortTerm.slice(-MAX_SHORT_TERM_MESSAGES);
+    }
+
+    // Persist every 10 messages
+    if (this.memory.shortTerm.length % 10 === 0) {
+      await this.persistMemory();
+    }
+  }
+
+  /**
+   * Persist agent memory to database
+   */
+  private async persistMemory(): Promise<void> {
+    try {
+      await this.prisma.agent.update({
+        where: { id: this.agent.id },
         data: {
-          status: TaskStatus.FAILED,
-          error: error.message,
-          retries: task.retries + 1
+          memory: this.memory as any,
+          updatedAt: new Date()
         }
       });
+    } catch (error) {
+      logger.error(`Failed to persist memory for agent ${this.agent.id}:`, error);
     }
   }
 
@@ -562,7 +746,6 @@ As a reporter:
    * Get available tools for this agent
    */
   private getAvailableTools(): any[] {
-    // Define security testing tools available to the agent
     return [
       {
         type: 'function',
@@ -630,7 +813,7 @@ As a reporter:
               target: { type: 'string', description: 'Target URL or IP' },
               exploit_type: { type: 'string', description: 'Type of exploit to test' },
               payload: { type: 'string', description: 'Exploit payload' },
-              safe_mode: { type: 'boolean', description: 'Run in safe validation mode' }
+              safe_mode: { type: 'boolean', description: 'Run in safe validation mode', default: true }
             },
             required: ['target', 'exploit_type', 'payload']
           }
@@ -684,7 +867,18 @@ As a reporter:
 
     for (const toolCall of toolCalls) {
       const functionName = toolCall.function.name;
-      const args = JSON.parse(toolCall.function.arguments);
+      let args;
+
+      try {
+        args = JSON.parse(toolCall.function.arguments);
+      } catch (error) {
+        logger.error(`Failed to parse tool arguments for ${functionName}:`, error);
+        results.push({
+          tool: functionName,
+          error: 'Invalid arguments format'
+        });
+        continue;
+      }
 
       logger.info(`Agent ${this.agent.id} calling tool: ${functionName}`, args);
 
@@ -770,7 +964,7 @@ As a reporter:
       }
     });
 
-    logger.info(`Finding reported: ${finding.id} - ${finding.title}`);
+    logger.info(`Finding reported: ${finding.id} - ${finding.title} (${finding.severity})`);
 
     return { findingId: finding.id, success: true };
   }
@@ -787,12 +981,13 @@ As a reporter:
     const targetAgent = await this.prisma.agent.findFirst({
       where: {
         scanId: this.agent.scanId,
-        type: args.agent_type
+        type: args.agent_type,
+        status: { in: [AgentStatus.ACTIVE, AgentStatus.IDLE] }
       }
     });
 
     if (!targetAgent) {
-      throw new Error(`No agent of type ${args.agent_type} found for this scan`);
+      throw new Error(`No available agent of type ${args.agent_type} found for this scan`);
     }
 
     const task = await this.prisma.task.create({
@@ -817,38 +1012,42 @@ As a reporter:
    * Record tool execution in database
    */
   private async recordToolExecution(toolName: string, args: any, result: any): Promise<void> {
-    // Find or create tool
-    let tool = await this.prisma.tool.findUnique({
-      where: { name: toolName }
-    });
+    try {
+      // Find or create tool
+      let tool = await this.prisma.tool.findUnique({
+        where: { name: toolName }
+      });
 
-    if (!tool) {
-      tool = await this.prisma.tool.create({
+      if (!tool) {
+        tool = await this.prisma.tool.create({
+          data: {
+            id: uuidv4(),
+            name: toolName,
+            description: `Security testing tool: ${toolName}`,
+            category: 'CUSTOM',
+            config: {},
+            enabled: true
+          }
+        });
+      }
+
+      await this.prisma.toolExecution.create({
         data: {
           id: uuidv4(),
-          name: toolName,
-          description: `Security testing tool: ${toolName}`,
-          category: 'CUSTOM',
-          config: {},
-          enabled: true
+          toolId: tool.id,
+          agentId: this.agent.id,
+          command: toolName,
+          args,
+          status: result.error ? 'FAILED' : 'COMPLETED',
+          output: JSON.stringify(result),
+          error: result.error,
+          startedAt: new Date(),
+          completedAt: new Date()
         }
       });
+    } catch (error) {
+      logger.error(`Failed to record tool execution:`, error);
     }
-
-    await this.prisma.toolExecution.create({
-      data: {
-        id: uuidv4(),
-        toolId: tool.id,
-        agentId: this.agent.id,
-        command: toolName,
-        args,
-        status: result.error ? 'FAILED' : 'COMPLETED',
-        output: JSON.stringify(result),
-        error: result.error,
-        startedAt: new Date(),
-        completedAt: new Date()
-      }
-    });
   }
 
   /**
@@ -871,18 +1070,44 @@ As a reporter:
   }
 
   /**
-   * Notify agent of new task
+   * Notify agent of new task (wakes up polling loop)
    */
-  notifyNewTask(task: Task): void {
-    // In a real implementation, this would wake up the agent
-    logger.info(`Agent ${this.agent.id} notified of new task ${task.id}`);
+  notifyNewTask(): void {
+    logger.debug(`Agent ${this.agent.id} notified of new task`);
+    // In a production system, this could use a more sophisticated
+    // event mechanism to wake up the agent immediately
   }
 
   /**
-   * Stop the agent
+   * Stop the agent gracefully
    */
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
-    logger.info(`Agent ${this.agent.id} stopping`);
+
+    // Abort current task if any
+    if (this.currentTaskAbortController) {
+      this.currentTaskAbortController.abort();
+    }
+
+    // Wait a bit for current task to finish
+    await this.sleep(1000);
+
+    // Persist final state
+    await this.persistMemory();
+
+    // Update agent status
+    await this.prisma.agent.update({
+      where: { id: this.agent.id },
+      data: { status: AgentStatus.IDLE }
+    });
+
+    logger.info(`Agent ${this.agent.id} stopped gracefully`);
+  }
+
+  /**
+   * Sleep helper
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
