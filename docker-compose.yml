@@ -99,7 +99,8 @@ services:
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
-    command: sh -c "npx prisma migrate deploy && npm start"
+    # Auto-init handles schema sync and seeding automatically
+    command: ["npm", "start"]
     deploy:
       resources:
         limits:

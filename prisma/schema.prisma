@@ -1,4 +1,5 @@
 // Tella AI Security - Database Schema
+// PERFORMANCE OPTIMIZED: Added 20+ indexes for query optimization
 
 generator client {
   provider = "prisma-client-js"
@@ -37,6 +38,8 @@ model ApiKey {
   createdAt DateTime @default(now())
   expiresAt DateTime?
   lastUsed  DateTime?
+
+  @@index([userId])
 }
 
 // Security testing entities
@@ -47,12 +50,14 @@ model Target {
   description String?
   type        TargetType
   status      TargetStatus @default(ACTIVE)
-  metadata    Json?    // Additional target info
+  metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   scans       Scan[]
   findings    Finding[]
+
+  @@index([status])
 }
 
 enum TargetType {
@@ -79,7 +84,7 @@ model Scan {
   user        User       @relation(fields: [userId], references: [id])
   status      ScanStatus @default(QUEUED)
   progress    Float      @default(0)
-  config      Json       // Scan configuration
+  config      Json
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime   @default(now())
@@ -88,6 +93,11 @@ model Scan {
   agents      Agent[]
   tasks       Task[]
   findings    Finding[]
+
+  @@index([status])
+  @@index([userId])
+  @@index([targetId])
+  @@index([createdAt])
 }
 
 enum ScanStatus {
@@ -104,28 +114,32 @@ model Agent {
   id          String      @id @default(uuid())
   name        String
   type        AgentType
-  role        String      // e.g., "reconnaissance", "exploitation", "reporting"
+  role        String
   status      AgentStatus @default(IDLE)
   scanId      String?
   scan        Scan?       @relation(fields: [scanId], references: [id], onDelete: SetNull)
-  capabilities Json       // List of tools/capabilities
-  memory      Json?       // Agent's working memory
-  config      Json        // Agent configuration
+  capabilities Json
+  memory      Json?
+  config      Json
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   tasks       Task[]
   conversations Conversation[]
   toolExecutions ToolExecution[]
+
+  @@index([status])
+  @@index([type])
+  @@index([scanId])
 }
 
 enum AgentType {
-  ORCHESTRATOR  // Main coordinating agent
-  RECON         // Reconnaissance specialist
-  SCANNER       // Vulnerability scanner
-  EXPLOITER     // Exploitation specialist
-  ANALYST       // Result analyzer
-  REPORTER      // Report generator
+  ORCHESTRATOR
+  RECON
+  SCANNER
+  EXPLOITER
+  ANALYST
+  REPORTER
 }
 
 enum AgentStatus {
@@ -158,6 +172,12 @@ model Task {
 
   dependencies TaskDependency[] @relation("DependentTask")
   dependents   TaskDependency[] @relation("RequiredTask")
+
+  @@index([status])
+  @@index([agentId])
+  @@index([scanId])
+  @@index([priority, status])
+  @@index([createdAt])
 }
 
 enum TaskType {
@@ -201,17 +221,23 @@ model Finding {
   title       String
   description String
   severity    Severity
-  category    String         // OWASP category, CWE, etc.
+  category    String
   cvss        Float?
   cve         String?
   status      FindingStatus  @default(NEW)
   confidence  Float          @default(1.0)
-  evidence    Json           // Screenshots, request/response, etc.
+  evidence    Json
   remediation String?
   references  String[]
   metadata    Json?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  @@index([severity])
+  @@index([status])
+  @@index([scanId])
+  @@index([targetId])
+  @@index([cve])
 }
 
 enum Severity {
@@ -235,25 +261,30 @@ model Conversation {
   id        String   @id @default(uuid())
   agentId   String
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  messages  Json     // Array of messages
-  context   Json?    // Conversation context
+  messages  Json
+  context   Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([agentId])
 }
 
-// Security tools available to agents
+// Security tools
 model Tool {
   id          String   @id @default(uuid())
   name        String   @unique
   description String
   category    ToolCategory
-  command     String?  // CLI command template
-  config      Json     // Tool-specific configuration
+  command     String?
+  config      Json
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   executions  ToolExecution[]
+
+  @@index([category])
+  @@index([enabled])
 }
 
 enum ToolCategory {
@@ -278,10 +309,15 @@ model ToolExecution {
   output      String?
   error       String?
   exitCode    Int?
-  duration    Int?              // milliseconds
+  duration    Int?
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime          @default(now())
+
+  @@index([status])
+  @@index([toolId])
+  @@index([agentId])
+  @@index([createdAt])
 }
 
 enum ExecutionStatus {
@@ -293,7 +329,7 @@ enum ExecutionStatus {
   CANCELLED
 }
 
-// Knowledge base for AI agents
+// Knowledge base
 model KnowledgeBase {
   id          String   @id @default(uuid())
   category    String
@@ -301,7 +337,7 @@ model KnowledgeBase {
   content     String
   tags        String[]
   metadata    Json?
-  embedding   Float[]? // Vector embedding for semantic search
+  embedding   Float[]?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

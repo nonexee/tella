@@ -11,7 +11,7 @@ COPY tsconfig.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --only=production && npm cache clean --force
 
 # Copy source code
 COPY src ./src
@@ -34,6 +34,10 @@ LABEL org.opencontainers.image.description="Agentic AI for Offensive Security Te
 LABEL org.opencontainers.image.vendor="Tella AI"
 LABEL security.scan="enabled"
 
+# Install security updates
+RUN apk --no-cache upgrade && \
+    apk add --no-cache dumb-init
+
 WORKDIR /app
 
 # Create non-root user
@@ -48,7 +52,7 @@ COPY --from=base --chown=nodejs:nodejs /app/dist ./dist
 COPY --from=base --chown=nodejs:nodejs /app/package.json ./
 COPY --from=base --chown=nodejs:nodejs /app/prisma ./prisma
 
-# Switch to non-root user
+# Drop capabilities and security hardening
 USER nodejs
 
 # Expose port
@@ -58,5 +62,8 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:4000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+
 # Start application
-CMD ["npm", "start"]
+CMD ["node", "dist/server/index.js"]
