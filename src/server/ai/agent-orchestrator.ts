@@ -73,12 +73,17 @@ export class AgentOrchestrator extends EventEmitter {
   constructor() {
     super();
 
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+    // Allow server to start without API key, but warn and disable AI features
+    const apiKey = process.env.OPENAI_API_KEY || 'placeholder-key-ai-features-disabled';
+    const hasValidKey = process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('placeholder') && !process.env.OPENAI_API_KEY.includes('your-openai');
+
+    if (!hasValidKey) {
+      logger.warn('⚠️  OPENAI_API_KEY not configured - AI agent features will be disabled');
+      logger.warn('⚠️  Set OPENAI_API_KEY in .env to enable autonomous security testing');
     }
 
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey,
       maxRetries: 3,
       timeout: 60000
     });
@@ -223,6 +228,23 @@ export class AgentOrchestrator extends EventEmitter {
    * Coordinate multiple agents for a security scan
    */
   async orchestrateScan(scanId: string): Promise<void> {
+    // Check if OpenAI API key is configured
+    const hasValidKey = process.env.OPENAI_API_KEY &&
+                        !process.env.OPENAI_API_KEY.includes('placeholder') &&
+                        !process.env.OPENAI_API_KEY.includes('your-openai');
+
+    if (!hasValidKey) {
+      const error = new Error('Cannot start AI scan: OPENAI_API_KEY not configured. Set a valid API key in .env file.');
+      logger.error('AI scan failed:', error);
+
+      // Update scan status to FAILED
+      await prisma.scan.update({
+        where: { id: scanId },
+        data: { status: 'FAILED', completedAt: new Date() }
+      });
+      throw error;
+    }
+
     const scan = await prisma.scan.findUnique({
       where: { id: scanId },
       include: { target: true }

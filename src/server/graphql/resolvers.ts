@@ -143,6 +143,28 @@ function validatePagination(args: PaginationArgs): { limit: number; offset: numb
   return { limit, offset };
 }
 
+/**
+ * Validate enum value with proper error handling
+ * Returns typed enum value or undefined for safer Prisma queries
+ */
+function validateEnum<T>(value: string | undefined, validValues: readonly string[], enumName: string): T | undefined {
+  if (!value) return undefined;
+  if (validValues.includes(value)) {
+    return value as T;
+  }
+  throw new GraphQLError(`Invalid ${enumName}: ${value}. Must be one of: ${validValues.join(', ')}`, {
+    extensions: { code: 'BAD_USER_INPUT' }
+  });
+}
+
+// Enum value arrays for validation
+const SCAN_STATUS_VALUES = ['QUEUED', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELLED'] as const;
+const AGENT_STATUS_VALUES = ['IDLE', 'ACTIVE', 'BUSY', 'ERROR', 'TERMINATED'] as const;
+const TASK_STATUS_VALUES = ['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED'] as const;
+const SEVERITY_VALUES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const;
+const FINDING_STATUS_VALUES = ['NEW', 'CONFIRMED', 'FALSE_POSITIVE', 'MITIGATED', 'ACCEPTED'] as const;
+const TOOL_CATEGORY_VALUES = ['RECON', 'SCANNER', 'FUZZER', 'EXPLOIT', 'ENUMERATION', 'ANALYSIS', 'CUSTOM'] as const;
+
 // ============================================
 // Custom Scalar Resolvers
 // ============================================
@@ -275,9 +297,10 @@ export const resolvers = {
       requirePermission(context, 'scan:read');
 
       const { limit, offset } = validatePagination(args);
+      const status = validateEnum(args.status, SCAN_STATUS_VALUES, 'ScanStatus');
 
       return prisma.scan.findMany({
-        where: args.status ? { status: args.status as any } : undefined,
+        where: status ? { status } : undefined,
         take: limit,
         skip: offset,
         include: {
@@ -335,9 +358,10 @@ export const resolvers = {
       requirePermission(context, 'agent:read');
 
       const { limit, offset } = validatePagination(args);
+      const status = validateEnum(args.status, AGENT_STATUS_VALUES, 'AgentStatus');
 
       return prisma.agent.findMany({
-        where: args.status ? { status: args.status as any } : undefined,
+        where: status ? { status } : undefined,
         take: limit,
         skip: offset,
         include: {
@@ -371,11 +395,12 @@ export const resolvers = {
       requirePermission(context, 'scan:read');
 
       const { limit, offset } = validatePagination(args);
+      const status = validateEnum(args.status, TASK_STATUS_VALUES, 'TaskStatus');
 
       return prisma.task.findMany({
         where: {
           ...(args.scanId && { scanId: args.scanId }),
-          ...(args.status && { status: args.status as any })
+          ...(status && { status })
         },
         take: limit,
         skip: offset,
@@ -410,12 +435,14 @@ export const resolvers = {
       requirePermission(context, 'finding:read');
 
       const { limit, offset } = validatePagination(args);
+      const severity = validateEnum(args.severity, SEVERITY_VALUES, 'Severity');
+      const status = validateEnum(args.status, FINDING_STATUS_VALUES, 'FindingStatus');
 
       return prisma.finding.findMany({
         where: {
           ...(args.scanId && { scanId: args.scanId }),
-          ...(args.severity && { severity: args.severity as any }),
-          ...(args.status && { status: args.status as any })
+          ...(severity && { severity }),
+          ...(status && { status })
         },
         take: limit,
         skip: offset,
@@ -450,9 +477,10 @@ export const resolvers = {
       requirePermission(context, 'tool:read');
 
       const { limit, offset } = validatePagination(args);
+      const category = validateEnum(args.category, TOOL_CATEGORY_VALUES, 'ToolCategory');
 
       return prisma.tool.findMany({
-        where: args.category ? { category: args.category as any } : undefined,
+        where: category ? { category } : undefined,
         take: limit,
         skip: offset
       });
