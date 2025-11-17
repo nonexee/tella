@@ -45,12 +45,18 @@ const PORT = parseInt(process.env.PORT || '4000', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PRODUCTION = NODE_ENV === 'production';
 
-// CORS configuration
+// CORS configuration with wildcard protection
 const CORS_ORIGINS = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',')
   : IS_PRODUCTION
   ? [] // No origins in prod without explicit config
   : ['http://localhost:5173', 'http://localhost:3000'];
+
+// CRITICAL SECURITY: Prevent wildcard CORS in production
+if (IS_PRODUCTION && CORS_ORIGINS.includes('*')) {
+  logger.error('FATAL: Wildcard CORS (*) is not allowed in production!');
+  throw new Error('CORS_ORIGIN cannot contain wildcard (*) in production environment');
+}
 
 // ============================================
 // Rate Limiting

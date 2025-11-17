@@ -6,12 +6,16 @@
  * - Proper error handling
  * - Type-safe requests
  * - Request/response interceptors
+ * - Race condition prevention (single refresh promise for concurrent requests)
  */
 
 import { authStore, updateTokens, logout } from '../stores/auth';
 import { get } from 'svelte/store';
 
 const GRAPHQL_ENDPOINT = import.meta.env.VITE_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
+
+// Global promise cache to prevent concurrent refresh attempts
+let refreshPromise: Promise<void> | null = null;
 
 export class GraphQLError extends Error {
   constructor(
@@ -140,46 +144,62 @@ export async function graphqlRequest<T = any>(
 
 /**
  * Refresh the access token using refresh token
+ * Uses a promise cache to prevent concurrent refresh attempts
  */
 async function refreshAccessToken(): Promise<void> {
-  const auth = get(authStore);
-
-  if (!auth.refreshToken) {
-    throw new Error('No refresh token available');
+  // If a refresh is already in progress, return that promise
+  if (refreshPromise) {
+    return refreshPromise;
   }
 
-  const response = await fetch(GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      query: `
-        mutation RefreshToken($refreshToken: String!) {
-          refreshToken(refreshToken: $refreshToken) {
-            accessToken
-            refreshToken
-          }
-        }
-      `,
-      variables: {
-        refreshToken: auth.refreshToken,
-      },
-    }),
-  });
+  // Create new refresh promise
+  refreshPromise = (async () => {
+    try {
+      const auth = get(authStore);
 
-  if (!response.ok) {
-    throw new Error('Failed to refresh token');
-  }
+      if (!auth.refreshToken) {
+        throw new Error('No refresh token available');
+      }
 
-  const result: GraphQLResponse = await response.json();
+      const response = await fetch(GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            mutation RefreshToken($refreshToken: String!) {
+              refreshToken(refreshToken: $refreshToken) {
+                accessToken
+                refreshToken
+              }
+            }
+          `,
+          variables: {
+            refreshToken: auth.refreshToken,
+          },
+        }),
+      });
 
-  if (result.errors || !result.data) {
-    throw new Error('Token refresh failed');
-  }
+      if (!response.ok) {
+        throw new Error('Failed to refresh token');
+      }
 
-  const { accessToken, refreshToken } = result.data.refreshToken;
-  updateTokens(accessToken, refreshToken);
+      const result: GraphQLResponse = await response.json();
+
+      if (result.errors || !result.data) {
+        throw new Error('Token refresh failed');
+      }
+
+      const { accessToken, refreshToken } = result.data.refreshToken;
+      updateTokens(accessToken, refreshToken);
+    } finally {
+      // Clear the promise cache when done (success or failure)
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 /**

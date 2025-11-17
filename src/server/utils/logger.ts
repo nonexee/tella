@@ -6,6 +6,7 @@
  * - Daily log rotation
  * - Environment-based log levels
  * - Separate error logs
+ * - Stdout logging for Docker/container orchestration
  */
 
 import winston from 'winston';
@@ -17,6 +18,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
 // Ensure logs directory exists
 const logsDir = join(__dirname, '../../../logs');
 if (!existsSync(logsDir)) {
@@ -24,9 +27,9 @@ if (!existsSync(logsDir)) {
 }
 
 // Determine log level based on environment
-const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
+const LOG_LEVEL = process.env.LOG_LEVEL || (IS_PRODUCTION ? 'info' : 'debug');
 
-// Custom format for console
+// Custom format for console (development - colorized)
 const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.errors({ stack: true }),
@@ -35,6 +38,13 @@ const consoleFormat = winston.format.combine(
     const meta = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
     return `${timestamp} [${level}]: ${message} ${meta}`;
   })
+);
+
+// JSON format for production stdout (for log aggregation tools)
+const productionFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.errors({ stack: true }),
+  winston.format.json()
 );
 
 // File format (JSON for easy parsing)
@@ -63,18 +73,25 @@ const errorRotateTransport = new DailyRotateFile({
   format: fileFormat
 });
 
+// Build transports array
+const transports: winston.transport[] = [
+  // Console/stdout transport
+  // - Development: Colorized, human-readable
+  // - Production: JSON for log aggregation (Docker/Kubernetes)
+  new winston.transports.Console({
+    format: IS_PRODUCTION ? productionFormat : consoleFormat,
+    silent: process.env.NODE_ENV === 'test'
+  })
+];
+
+// Add file transports (not needed if running in ephemeral containers)
+if (!process.env.DISABLE_FILE_LOGGING) {
+  transports.push(dailyRotateTransport, errorRotateTransport);
+}
+
 export const logger = winston.createLogger({
   level: LOG_LEVEL,
-  transports: [
-    // Console transport (only in development or when explicitly enabled)
-    new winston.transports.Console({
-      format: consoleFormat,
-      silent: process.env.NODE_ENV === 'test'
-    }),
-    // Daily rotating files
-    dailyRotateTransport,
-    errorRotateTransport
-  ],
+  transports,
   // Don't exit on handled exceptions
   exitOnError: false
 });

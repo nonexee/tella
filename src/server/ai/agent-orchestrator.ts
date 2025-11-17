@@ -88,7 +88,7 @@ export class AgentOrchestrator extends EventEmitter {
   }
 
   /**
-   * Graceful shutdown
+   * Graceful shutdown with timeout
    */
   async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
@@ -96,15 +96,37 @@ export class AgentOrchestrator extends EventEmitter {
     this.isShuttingDown = true;
     logger.info('Shutting down Agent Orchestrator...');
 
-    // Stop all active agents
-    const shutdownPromises = Array.from(this.activeAgents.values()).map(
-      agent => agent.stop()
-    );
+    const SHUTDOWN_TIMEOUT = 10000; // 10 seconds
 
-    await Promise.allSettled(shutdownPromises);
-    await this.prisma.$disconnect();
+    try {
+      // Stop all active agents with timeout
+      const shutdownPromises = Array.from(this.activeAgents.values()).map(
+        agent => agent.stop()
+      );
 
-    logger.info('Agent Orchestrator shut down complete');
+      // Race between shutdown and timeout
+      await Promise.race([
+        Promise.allSettled(shutdownPromises),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Shutdown timeout')), SHUTDOWN_TIMEOUT)
+        )
+      ]);
+
+      logger.info('All agents stopped successfully');
+    } catch (error) {
+      logger.warn('Agent shutdown timeout reached, forcing shutdown', { error });
+      // Force shutdown by clearing active agents
+      this.activeAgents.clear();
+    } finally {
+      // Always disconnect from database
+      try {
+        await this.prisma.$disconnect();
+      } catch (error) {
+        logger.error('Error disconnecting Prisma:', error);
+      }
+
+      logger.info('Agent Orchestrator shut down complete');
+    }
   }
 
   /**
