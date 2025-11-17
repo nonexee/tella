@@ -22,6 +22,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
+import { sanitizeError } from '../utils/security.js';
 import pLimit from 'p-limit';
 
 const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
@@ -64,6 +65,8 @@ export class AgentOrchestrator extends EventEmitter {
   private activeAgents: Map<string, AgentRunner>;
   private openaiLimiter: pLimit.Limit;
   private isShuttingDown: boolean = false;
+  private sigtermHandler: () => void;
+  private sigintHandler: () => void;
 
   constructor() {
     super();
@@ -82,8 +85,11 @@ export class AgentOrchestrator extends EventEmitter {
     this.openaiLimiter = pLimit(OPENAI_RATE_LIMIT);
 
     // Graceful shutdown handling
-    process.on('SIGTERM', () => this.shutdown());
-    process.on('SIGINT', () => this.shutdown());
+    // Store bound handlers so we can remove them later
+    this.sigtermHandler = () => this.shutdown();
+    this.sigintHandler = () => this.shutdown();
+    process.on('SIGTERM', this.sigtermHandler);
+    process.on('SIGINT', this.sigintHandler);
   }
 
   /**
@@ -117,6 +123,10 @@ export class AgentOrchestrator extends EventEmitter {
       // Force shutdown by clearing active agents
       this.activeAgents.clear();
     } finally {
+      // Remove event listeners to prevent memory leaks
+      process.off('SIGTERM', this.sigtermHandler);
+      process.off('SIGINT', this.sigintHandler);
+
       // Database disconnection handled by centralized prisma client
       logger.info('Prisma will be disconnected by centralized client');
 
@@ -442,14 +452,14 @@ class AgentRunner {
   constructor(
     agent: Agent,
     openai: OpenAI,
-    prisma: PrismaClient,
+    prismaClient: PrismaClient,
     securityTools: SecurityTools,
     openaiLimiter: pLimit.Limit,
     isShuttingDown: () => boolean
   ) {
     this.agent = agent;
     this.openai = openai;
-    prisma = prisma;
+    this.prisma = prismaClient;
     this.securityTools = securityTools;
     this.openaiLimiter = openaiLimiter;
     this.isShuttingDown = isShuttingDown;
@@ -563,7 +573,7 @@ As a reporter:
 
       } catch (error: any) {
         consecutiveErrors++;
-        logger.error(`Agent ${this.agent.id} error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
+        logger.error(`Agent ${this.agent.id} error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, sanitizeError(error));
 
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
           logger.error(`Agent ${this.agent.id} exceeded max consecutive errors, stopping`);
@@ -935,7 +945,7 @@ As a reporter:
         await this.recordToolExecution(functionName, args, result);
 
       } catch (error: any) {
-        logger.error(`Tool execution failed: ${functionName}`, error);
+        logger.error(`Tool execution failed: ${functionName}`, sanitizeError(error));
         results.push({
           tool: functionName,
           args,
