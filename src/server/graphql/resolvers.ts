@@ -36,6 +36,13 @@ const pubsub = new PubSub();
 const orchestrator = new AgentOrchestrator();
 
 // ============================================
+// Constants
+// ============================================
+
+const MAX_PAGINATION_LIMIT = 1000; // Maximum items per page
+const DEFAULT_PAGINATION_LIMIT = 50;
+
+// ============================================
 // Type Definitions
 // ============================================
 
@@ -122,6 +129,20 @@ function validateInput<T>(schema: z.ZodSchema<T>, data: unknown): T {
   }
 }
 
+/**
+ * Validate and clamp pagination parameters
+ * Prevents abuse with massive limit values (SECURITY!)
+ */
+function validatePagination(args: PaginationArgs): { limit: number; offset: number } {
+  const limit = Math.min(
+    args.limit || DEFAULT_PAGINATION_LIMIT,
+    MAX_PAGINATION_LIMIT
+  );
+  const offset = Math.max(args.offset || 0, 0);
+
+  return { limit, offset };
+}
+
 // ============================================
 // Custom Scalar Resolvers
 // ============================================
@@ -158,9 +179,11 @@ export const resolvers = {
     ): Promise<User[]> => {
       requirePermission(context, 'user:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.user.findMany({
-        take: args.limit || 50,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         select: {
           id: true,
           email: true,

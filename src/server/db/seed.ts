@@ -156,11 +156,21 @@ async function main() {
   console.log('   - Access tokens expire after 15 minutes\n');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Seeding failed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// Only run main() if this file is executed directly (not imported)
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+
+if (isMain) {
+  main()
+    .catch((e) => {
+      console.error('❌ Seeding failed:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      // Only disconnect when running standalone
+      // When imported by db-init.ts, this won't run
+      await prisma.$disconnect();
+    });
+}
+
+// Export for use in db-init.ts (imported, won't disconnect)
+export { main as seedDatabase };
