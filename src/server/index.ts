@@ -32,9 +32,13 @@ import { authenticateUser } from './utils/auth.js';
 import { logger } from './utils/logger.js';
 import { prisma } from './utils/prisma.js';
 import { initializeDatabase } from './utils/db-init.js';
+import { validateOrThrow } from './utils/env-validation.js';
 
 // Load environment variables
 dotenv.config();
+
+// Validate environment before starting
+validateOrThrow();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,9 +59,15 @@ const CORS_ORIGINS = process.env.CORS_ORIGIN
   : ['http://localhost:5173', 'http://localhost:3000'];
 
 // CRITICAL SECURITY: Prevent wildcard CORS in production
-if (IS_PRODUCTION && CORS_ORIGINS.includes('*')) {
-  logger.error('FATAL: Wildcard CORS (*) is not allowed in production!');
-  throw new Error('CORS_ORIGIN cannot contain wildcard (*) in production environment');
+if (IS_PRODUCTION) {
+  if (CORS_ORIGINS.includes('*')) {
+    logger.error('FATAL: Wildcard CORS (*) is not allowed in production!');
+    throw new Error('CORS_ORIGIN cannot contain wildcard (*) in production environment');
+  }
+  if (CORS_ORIGINS.length === 0) {
+    logger.error('FATAL: CORS_ORIGIN must be explicitly set in production!');
+    throw new Error('CORS_ORIGIN cannot be empty in production environment');
+  }
 }
 
 // ============================================
@@ -348,6 +358,10 @@ async function initializeServer() {
           // Stop Apollo Server
           await apolloServer.stop();
           logger.info('Apollo Server stopped');
+
+          // Disconnect Prisma
+          await prisma.$disconnect();
+          logger.info('Database connections closed');
 
           logger.info('Graceful shutdown complete');
           process.exit(0);

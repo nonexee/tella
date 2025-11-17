@@ -27,9 +27,11 @@ import pLimit from 'p-limit';
 
 const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
 const AGENT_POLL_INTERVAL = 5000; // 5 seconds between task checks
-const OPENAI_RATE_LIMIT = 10; // Max concurrent OpenAI calls
+
+// Load from environment variables with safe defaults
+const OPENAI_RATE_LIMIT = parseInt(process.env.MAX_CONCURRENT_AGENTS || '10', 10);
 const MAX_TASK_RETRIES = 3;
-const TASK_TIMEOUT_MS = 300000; // 5 minutes
+const TASK_TIMEOUT_MS = parseInt(process.env.AGENT_TIMEOUT_MS || '300000', 10);
 
 export interface AgentCapability {
   name: string;
@@ -695,12 +697,29 @@ As a reporter:
       clearTimeout(timeoutId);
 
       const isTimeout = error.name === 'AbortError';
-      const errorMessage = isTimeout ? 'Task timeout' : error.message;
+      const isRateLimit = error.status === 429 || error.code === 'rate_limit_exceeded';
+      const errorMessage = isTimeout ? 'Task timeout' : isRateLimit ? 'OpenAI rate limit exceeded' : error.message;
 
-      logger.error(`Agent ${this.agent.id} task ${task.id} failed:`, errorMessage);
+      logger.error(`Agent ${this.agent.id} task ${task.id} failed:`, sanitizeError(error));
 
-      // Check if we should retry
-      if (task.retries < task.maxRetries && !isTimeout) {
+      // Rate limit errors: always retry with exponential backoff
+      if (isRateLimit && task.retries < task.maxRetries + 2) {
+        const backoffDelay = Math.min(1000 * Math.pow(2, task.retries), 30000); // Max 30s
+        logger.warn(`Rate limit hit, will retry task ${task.id} after ${backoffDelay}ms (attempt ${task.retries + 1})`);
+
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+
+        await prisma.task.update({
+          where: { id: task.id },
+          data: {
+            status: TaskStatus.PENDING,
+            error: errorMessage,
+            retries: task.retries + 1
+          }
+        });
+      }
+      // Regular errors: retry if within limit and not timeout
+      else if (task.retries < task.maxRetries && !isTimeout) {
         await prisma.task.update({
           where: { id: task.id },
           data: {
