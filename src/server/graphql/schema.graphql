@@ -24,7 +24,8 @@ enum Role {
 }
 
 type AuthPayload {
-  token: String!
+  accessToken: String!
+  refreshToken: String!
   user: User!
 }
 
@@ -388,6 +389,7 @@ type Mutation {
   # Auth
   login(email: String!, password: String!): AuthPayload!
   register(email: String!, password: String!, name: String!): AuthPayload!
+  refreshToken(refreshToken: String!): AuthPayload!
   createApiKey(expiresAt: DateTime): ApiKey!
   revokeApiKey(id: ID!): Boolean!
 

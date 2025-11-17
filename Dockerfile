@@ -28,22 +28,34 @@ RUN npm run build
 # Production image
 FROM node:18-alpine AS production
 
+# Add security labels
+LABEL org.opencontainers.image.title="Tella AI Security Platform"
+LABEL org.opencontainers.image.description="Agentic AI for Offensive Security Testing"
+LABEL org.opencontainers.image.vendor="Tella AI"
+LABEL security.scan="enabled"
+
 WORKDIR /app
 
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    mkdir -p logs tmp && \
+    chown -R nodejs:nodejs /app
+
 # Copy built files and dependencies
-COPY --from=base /app/node_modules ./node_modules
-COPY --from=base /app/dist ./dist
-COPY --from=base /app/package.json ./
-COPY --from=base /app/prisma ./prisma
+COPY --from=base --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=base --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=base --chown=nodejs:nodejs /app/package.json ./
+COPY --from=base --chown=nodejs:nodejs /app/prisma ./prisma
 
-# Create logs directory
-RUN mkdir -p logs
+# Switch to non-root user
+USER nodejs
 
-# Expose ports
+# Expose port
 EXPOSE 4000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:4000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start application

@@ -3,14 +3,61 @@
  *
  * This module implements the actual security testing tools used by AI agents.
  * Built with an attacker's mindset for comprehensive vulnerability discovery.
+ *
+ * FIXES:
+ * - Input validation with Zod
+ * - Rate limiting with p-limit
+ * - Proper error handling
+ * - AbortController for timeouts
+ * - Organized imports
  */
 
 import axios, { AxiosError } from 'axios';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import net from 'net';
+import dns from 'dns/promises';
+import pLimit from 'p-limit';
+import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 
 const execAsync = promisify(exec);
+
+// Rate limiting
+const portScanLimit = pLimit(50); // Max 50 concurrent port scans
+const httpRequestLimit = pLimit(10); // Max 10 concurrent HTTP requests
+const dnsLimit = pLimit(20); // Max 20 concurrent DNS queries
+
+// Validation schemas
+const portScanSchema = z.object({
+  target: z.string().min(1, 'Target is required').refine(
+    (val) => /^[a-zA-Z0-9.-]+$/.test(val) || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val),
+    'Invalid target format (domain or IP)'
+  ),
+  ports: z.string().optional(),
+  technique: z.enum(['syn', 'connect', 'stealth']).optional()
+});
+
+const webScanSchema = z.object({
+  url: z.string().url('Invalid URL format'),
+  scan_types: z.array(z.enum(['xss', 'sqli', 'csrf', 'ssrf'])).optional(),
+  depth: z.number().min(0).max(5).optional()
+});
+
+const subdomainEnumSchema = z.object({
+  domain: z.string().min(1, 'Domain is required').refine(
+    (val) => /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(val),
+    'Invalid domain format'
+  ),
+  techniques: z.array(z.enum(['dns', 'certificate'])).optional()
+});
+
+const exploitTestSchema = z.object({
+  target: z.string().url('Invalid target URL'),
+  exploit_type: z.string().min(1, 'Exploit type is required'),
+  payload: z.string().min(1, 'Payload is required'),
+  safe_mode: z.boolean().optional()
+});
 
 export interface PortScanResult {
   target: string;
@@ -59,18 +106,26 @@ export class SecurityTools {
     ports?: string;
     technique?: 'syn' | 'connect' | 'stealth';
   }): Promise<PortScanResult> {
-    logger.info(`Port scanning: ${params.target}`);
+    // Validate input
+    const validatedParams = portScanSchema.parse(params);
 
-    const ports = params.ports || 'common';
-    const technique = params.technique || 'connect';
+    logger.info(`Port scanning: ${validatedParams.target}`);
+
+    const ports = validatedParams.ports || 'common';
+    const technique = validatedParams.technique || 'connect';
 
     try {
       // For production, integrate with nmap or custom scanner
       // This is a simplified implementation
-      const result = await this.tcpConnectScan(params.target, ports);
+      const result = await this.tcpConnectScan(validatedParams.target, ports);
       return result;
     } catch (error: any) {
       logger.error('Port scan failed:', error);
+
+      if (error instanceof z.ZodError) {
+        throw new Error(`Validation error: ${error.errors.map(e => e.message).join(', ')}`);
+      }
+
       throw new Error(`Port scan failed: ${error.message}`);
     }
   }
@@ -84,8 +139,10 @@ export class SecurityTools {
 
     const openPorts: PortScanResult['openPorts'] = [];
 
-    // Scan ports in parallel with rate limiting
-    const scanPromises = portsToScan.map(port => this.checkPort(target, port));
+    // Scan ports in parallel with rate limiting (max 50 concurrent)
+    const scanPromises = portsToScan.map(port =>
+      portScanLimit(() => this.checkPort(target, port))
+    );
     const results = await Promise.allSettled(scanPromises);
 
     results.forEach((result, index) => {
@@ -115,7 +172,6 @@ export class SecurityTools {
     version?: string;
   }> {
     return new Promise((resolve) => {
-      const net = require('net');
       const socket = new net.Socket();
 
       const timeout = setTimeout(() => {
@@ -134,6 +190,7 @@ export class SecurityTools {
 
       socket.on('error', () => {
         clearTimeout(timeout);
+        socket.destroy();
         resolve({ open: false, service: 'unknown' });
       });
     });
@@ -147,48 +204,51 @@ export class SecurityTools {
     scan_types?: string[];
     depth?: number;
   }): Promise<WebScanResult> {
-    logger.info(`Web scanning: ${params.url}`);
+    // Validate input
+    const validatedParams = webScanSchema.parse(params);
 
-    const scanTypes = params.scan_types || ['xss', 'sqli', 'csrf', 'ssrf'];
+    logger.info(`Web scanning: ${validatedParams.url}`);
+
+    const scanTypes = validatedParams.scan_types || ['xss', 'sqli', 'csrf', 'ssrf'];
     const vulnerabilities: WebScanResult['vulnerabilities'] = [];
 
     try {
       // Fingerprint technologies
-      const technologies = await this.detectTechnologies(params.url);
+      const technologies = await this.detectTechnologies(validatedParams.url);
 
       // Check security headers
-      const headers = await this.checkSecurityHeaders(params.url);
+      const headers = await this.checkSecurityHeaders(validatedParams.url);
 
       // Check cookies
-      const cookies = await this.analyzeCookies(params.url);
+      const cookies = await this.analyzeCookies(validatedParams.url);
 
       // Run vulnerability tests
       if (scanTypes.includes('xss')) {
-        const xssVulns = await this.testXSS(params.url);
+        const xssVulns = await this.testXSS(validatedParams.url);
         vulnerabilities.push(...xssVulns);
       }
 
       if (scanTypes.includes('sqli')) {
-        const sqliVulns = await this.testSQLInjection(params.url);
+        const sqliVulns = await this.testSQLInjection(validatedParams.url);
         vulnerabilities.push(...sqliVulns);
       }
 
       if (scanTypes.includes('csrf')) {
-        const csrfVulns = await this.testCSRF(params.url);
+        const csrfVulns = await this.testCSRF(validatedParams.url);
         vulnerabilities.push(...csrfVulns);
       }
 
       if (scanTypes.includes('ssrf')) {
-        const ssrfVulns = await this.testSSRF(params.url);
+        const ssrfVulns = await this.testSSRF(validatedParams.url);
         vulnerabilities.push(...ssrfVulns);
       }
 
       // Check for common misconfigurations
-      const misconfigVulns = await this.checkMisconfigurations(params.url, headers);
+      const misconfigVulns = await this.checkMisconfigurations(validatedParams.url, headers);
       vulnerabilities.push(...misconfigVulns);
 
       return {
-        url: params.url,
+        url: validatedParams.url,
         vulnerabilities,
         technologies,
         headers: headers.headers,
@@ -196,6 +256,11 @@ export class SecurityTools {
       };
     } catch (error: any) {
       logger.error('Web scan failed:', error);
+
+      if (error instanceof z.ZodError) {
+        throw new Error(`Validation error: ${error.errors.map(e => e.message).join(', ')}`);
+      }
+
       throw new Error(`Web scan failed: ${error.message}`);
     }
   }
@@ -651,15 +716,18 @@ export class SecurityTools {
     domain: string;
     techniques?: string[];
   }): Promise<SubdomainEnumResult> {
-    logger.info(`Enumerating subdomains for: ${params.domain}`);
+    // Validate input
+    const validatedParams = subdomainEnumSchema.parse(params);
 
-    const techniques = params.techniques || ['dns', 'certificate'];
+    logger.info(`Enumerating subdomains for: ${validatedParams.domain}`);
+
+    const techniques = validatedParams.techniques || ['dns', 'certificate'];
     const subdomains: SubdomainEnumResult['subdomains'] = [];
     const foundSubdomains = new Set<string>();
 
     try {
       if (techniques.includes('certificate')) {
-        const certSubdomains = await this.enumerateFromCerts(params.domain);
+        const certSubdomains = await this.enumerateFromCerts(validatedParams.domain);
         certSubdomains.forEach(sub => {
           if (!foundSubdomains.has(sub.subdomain)) {
             foundSubdomains.add(sub.subdomain);
@@ -669,7 +737,7 @@ export class SecurityTools {
       }
 
       if (techniques.includes('dns')) {
-        const dnsSubdomains = await this.enumerateDNS(params.domain);
+        const dnsSubdomains = await this.enumerateDNS(validatedParams.domain);
         dnsSubdomains.forEach(sub => {
           if (!foundSubdomains.has(sub.subdomain)) {
             foundSubdomains.add(sub.subdomain);
@@ -679,11 +747,16 @@ export class SecurityTools {
       }
 
       return {
-        domain: params.domain,
+        domain: validatedParams.domain,
         subdomains
       };
     } catch (error: any) {
       logger.error('Subdomain enumeration failed:', error);
+
+      if (error instanceof z.ZodError) {
+        throw new Error(`Validation error: ${error.errors.map(e => e.message).join(', ')}`);
+      }
+
       throw new Error(`Subdomain enumeration failed: ${error.message}`);
     }
   }
@@ -736,21 +809,31 @@ export class SecurityTools {
       'admin', 'api', 'blog', 'shop', 'app', 'beta', 'mobile', 'm', 'docs', 'vpn'
     ];
 
-    for (const sub of commonSubdomains) {
-      const hostname = `${sub}.${domain}`;
-      try {
-        const dns = require('dns').promises;
-        const addresses = await dns.resolve4(hostname);
+    // Use rate limiting for DNS queries (max 20 concurrent)
+    const dnsPromises = commonSubdomains.map(sub =>
+      dnsLimit(async () => {
+        const hostname = `${sub}.${domain}`;
+        try {
+          const addresses = await dns.resolve4(hostname);
+          return {
+            subdomain: hostname,
+            ip: addresses,
+            source: 'dns_bruteforce' as const
+          };
+        } catch (error) {
+          // Subdomain doesn't exist
+          return null;
+        }
+      })
+    );
 
-        subdomains.push({
-          subdomain: hostname,
-          ip: addresses,
-          source: 'dns_bruteforce'
-        });
-      } catch (error) {
-        // Subdomain doesn't exist, continue
+    const results = await Promise.allSettled(dnsPromises);
+
+    results.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        subdomains.push(result.value);
       }
-    }
+    });
 
     return subdomains;
   }
@@ -764,9 +847,12 @@ export class SecurityTools {
     payload: string;
     safe_mode?: boolean;
   }): Promise<any> {
-    logger.info(`Testing exploit: ${params.exploit_type} on ${params.target}`);
+    // Validate input
+    const validatedParams = exploitTestSchema.parse(params);
 
-    if (params.safe_mode !== false) {
+    logger.info(`Testing exploit: ${validatedParams.exploit_type} on ${validatedParams.target}`);
+
+    if (validatedParams.safe_mode !== false) {
       logger.warn('Exploit testing in safe mode - validation only');
     }
 
@@ -775,7 +861,7 @@ export class SecurityTools {
     return {
       success: false,
       message: 'Exploit testing requires implementation',
-      safe_mode: params.safe_mode !== false
+      safe_mode: validatedParams.safe_mode !== false
     };
   }
 

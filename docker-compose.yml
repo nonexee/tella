@@ -1,13 +1,19 @@
 version: '3.8'
 
+networks:
+  tella-network:
+    driver: bridge
+
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: tella-postgres
+    networks:
+      - tella-network
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}  # Use env var!
       POSTGRES_DB: tella_ai
     ports:
       - "5432:5432"
@@ -18,11 +24,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Postgres needs write access
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
 
   # Redis for task queue
   redis:
     image: redis:7-alpine
     container_name: tella-redis
+    networks:
+      - tella-network
     ports:
       - "6379:6379"
     volumes:
@@ -32,6 +54,19 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Redis needs write access
+    tmpfs:
+      - /tmp
 
   # Tella AI Application
   app:
@@ -39,19 +74,22 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: tella-app
+    networks:
+      - tella-network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tella_ai?schema=public
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres:5432/tella_ai?schema=public
       REDIS_URL: redis://redis:6379
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4-turbo-preview}
       PORT: 4000
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       MAX_CONCURRENT_AGENTS: ${MAX_CONCURRENT_AGENTS:-5}
       AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-300000}
       ENABLE_AGGRESSIVE_TESTING: ${ENABLE_AGGRESSIVE_TESTING:-false}
@@ -62,6 +100,20 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     command: sh -c "npx prisma migrate deploy && npm start"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # App needs to write logs and temp files
+    tmpfs:
+      - /app/tmp
+    user: "1001:1001"  # Run as non-root user (matches Dockerfile)
 
 volumes:
   postgres_data:

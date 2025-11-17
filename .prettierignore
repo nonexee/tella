@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+build/
+.svelte-kit/
+.next/
+out/
+
+# Logs
+logs/
+*.log
+
+# Database
+prisma/migrations/
+
+# Environment
+.env
+.env.*
+
+# Cache
+.cache/
+.turbo/
+.eslintcache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Generated files
+*.min.js
+*.min.css

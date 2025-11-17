@@ -3,6 +3,7 @@
   import Dashboard from './components/Dashboard.svelte';
   import Login from './components/Login.svelte';
   import Sidebar from './components/Sidebar.svelte';
+  import ErrorBoundary from './components/ErrorBoundary.svelte';
   import { authStore } from './stores/auth';
 
   let currentView = 'dashboard';
@@ -17,20 +18,22 @@
   }
 </script>
 
-<main>
-  {#if !isAuthenticated}
-    <Login />
-  {:else}
-    <div class="app-layout">
-      <Sidebar on:navigate={handleViewChange} />
-      <div class="content">
-        {#if currentView === 'dashboard'}
-          <Dashboard />
-        {/if}
+<ErrorBoundary>
+  <main>
+    {#if !isAuthenticated}
+      <Login />
+    {:else}
+      <div class="app-layout">
+        <Sidebar on:navigate={handleViewChange} />
+        <div class="content">
+          {#if currentView === 'dashboard'}
+            <Dashboard />
+          {/if}
+        </div>
       </div>
-    </div>
-  {/if}
-</main>
+    {/if}
+  </main>
+</ErrorBoundary>
 
 <style>
   main {

@@ -46,3 +46,15 @@ pnpm-debug.log*
 # Misc
 .turbo
 *.tsbuildinfo
+
+# Security - Never commit these!
+*.pem
+*.key
+*.cert
+*.crt
+credentials.json
+secrets.json
+.secrets/
+
+# Docker (optional - comment out if you want to commit these)
+# docker-compose.override.yml

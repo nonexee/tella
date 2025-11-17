@@ -13,7 +13,8 @@ async function main() {
   console.log('🌱 Seeding database...');
 
   // Create admin user
-  const adminPassword = await hashPassword('admin123');
+  // Password meets requirements: 8+ chars, uppercase, lowercase, number, special char
+  const adminPassword = await hashPassword('Admin123!@#');
   const admin = await prisma.user.upsert({
     where: { email: 'admin@tella.ai' },
     update: {},
@@ -130,8 +131,12 @@ async function main() {
   console.log('🎉 Database seeding completed!');
   console.log('\n📝 Default credentials:');
   console.log('   Email: admin@tella.ai');
-  console.log('   Password: admin123');
-  console.log('\n⚠️  CHANGE THESE CREDENTIALS IN PRODUCTION!\n');
+  console.log('   Password: Admin123!@#');
+  console.log('\n⚠️  IMPORTANT SECURITY NOTES:');
+  console.log('   - CHANGE THESE CREDENTIALS IN PRODUCTION!');
+  console.log('   - Password requirements: 8+ chars, uppercase, lowercase, number, special char');
+  console.log('   - Login attempts limited to 5 per 15 minutes');
+  console.log('   - Access tokens expire after 15 minutes\n');
 }
 
 main()

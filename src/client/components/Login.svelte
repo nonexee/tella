@@ -1,5 +1,7 @@
 <script lang="ts">
   import { login } from '../stores/auth';
+  import { mutate, GraphQLError, NetworkError } from '../lib/graphql-client';
+  import type { User } from '../stores/auth';
 
   let email = '';
   let password = '';
@@ -16,39 +18,40 @@
     error = '';
 
     try {
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: `
-            mutation Login($email: String!, $password: String!) {
-              login(email: $email, password: $password) {
-                token
-                user {
-                  id
-                  email
-                  name
-                  role
-                }
+      const result = await mutate<{
+        login: {
+          accessToken: string;
+          refreshToken: string;
+          user: User;
+        };
+      }>(
+        `
+          mutation Login($email: String!, $password: String!) {
+            login(email: $email, password: $password) {
+              accessToken
+              refreshToken
+              user {
+                id
+                email
+                name
+                role
               }
             }
-          `,
-          variables: { email, password }
-        })
-      });
+          }
+        `,
+        { email, password }
+      );
 
-      const result = await response.json();
-
-      if (result.errors) {
-        error = result.errors[0].message;
+      const { accessToken, refreshToken, user } = result.login;
+      login(accessToken, refreshToken, user);
+    } catch (err) {
+      if (err instanceof GraphQLError) {
+        error = err.message;
+      } else if (err instanceof NetworkError) {
+        error = 'Network error. Please check your connection.';
       } else {
-        const { token, user } = result.data.login;
-        login(token, user);
+        error = 'Failed to login. Please try again.';
       }
-    } catch (err: any) {
-      error = 'Failed to login. Please try again.';
     } finally {
       loading = false;
     }
