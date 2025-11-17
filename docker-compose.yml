@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: tella-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tella_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for task queue
+  redis:
+    image: redis:7-alpine
+    container_name: tella-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Tella AI Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tella-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tella_ai?schema=public
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4-turbo-preview}
+      PORT: 4000
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      MAX_CONCURRENT_AGENTS: ${MAX_CONCURRENT_AGENTS:-5}
+      AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-300000}
+      ENABLE_AGGRESSIVE_TESTING: ${ENABLE_AGGRESSIVE_TESTING:-false}
+    ports:
+      - "4000:4000"
+      - "5173:5173"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    command: sh -c "npx prisma migrate deploy && npm start"
+
+volumes:
+  postgres_data:
+  redis_data:

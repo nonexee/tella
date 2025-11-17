@@ -1,0 +1,203 @@
+:root {
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --secondary: #8b5cf6;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --critical: #dc2626;
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --bg-hover: #334155;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --border: #475569;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+code, pre {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Utility classes */
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #059669;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px var(--shadow);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-critical {
+  background: var(--critical);
+  color: white;
+}
+
+.badge-high {
+  background: var(--danger);
+  color: white;
+}
+
+.badge-medium {
+  background: var(--warning);
+  color: white;
+}
+
+.badge-low {
+  background: var(--success);
+  color: white;
+}
+
+.badge-info {
+  background: var(--primary);
+  color: white;
+}
+
+input, select, textarea {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  transition: border-color 0.2s;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}

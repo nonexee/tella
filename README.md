@@ -1,0 +1,275 @@
+# 🛡️ Tella AI - Offensive Security Testing Platform
+
+> Next-generation AI-powered offensive security testing with GPT-5 and multi-agent orchestration
+
+Tella AI is an advanced, fully autonomous offensive security testing platform that leverages cutting-edge AI (GPT-5) to conduct comprehensive security assessments. Built with an attacker's mindset, it combines clean architecture with powerful security testing capabilities.
+
+## 🚀 Features
+
+### Multi-Agent AI System
+- **Orchestrator Agent**: Coordinates all security testing activities
+- **Recon Agent**: Performs comprehensive reconnaissance
+- **Scanner Agent**: Identifies vulnerabilities systematically
+- **Exploiter Agent**: Validates findings with proof-of-concept exploits
+- **Analyst Agent**: Correlates and analyzes results
+- **Reporter Agent**: Generates detailed security reports
+
+### Security Testing Capabilities
+- 🔍 **Reconnaissance**: Subdomain enumeration, OSINT, technology fingerprinting
+- 📡 **Port Scanning**: Multi-technique port and service discovery
+- 🐛 **Vulnerability Detection**: XSS, SQLi, CSRF, SSRF, and more
+- 💥 **Exploit Validation**: Safe, controlled exploit testing
+- 📊 **Real-time Monitoring**: Live agent status and findings
+- 📝 **Comprehensive Reporting**: Detailed findings with remediation
+
+### Technology Stack
+- **Backend**: TypeScript, Node.js, GraphQL, Prisma
+- **Database**: PostgreSQL
+- **Queue**: Redis + BullMQ
+- **AI**: OpenAI GPT-5 with function calling
+- **Frontend**: Svelte with real-time updates
+- **Deployment**: Docker & Docker Compose
+
+## 📋 Prerequisites
+
+- Node.js 18+
+- PostgreSQL 15+
+- Redis 7+
+- OpenAI API Key (GPT-5 when available, currently uses GPT-4 Turbo)
+- Docker & Docker Compose (for containerized deployment)
+
+## 🔧 Installation
+
+### Option 1: Docker Compose (Recommended)
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd tella
+```
+
+2. Create `.env` file:
+```bash
+cp .env.example .env
+```
+
+3. Configure environment variables in `.env`:
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/tella_ai?schema=public"
+REDIS_URL="redis://localhost:6379"
+OPENAI_API_KEY="your-openai-api-key"
+OPENAI_MODEL="gpt-5"  # Will use gpt-4-turbo-preview until GPT-5 is available
+JWT_SECRET="your-super-secret-jwt-key"
+MAX_CONCURRENT_AGENTS=5
+ENABLE_AGGRESSIVE_TESTING=false
+```
+
+4. Start the platform:
+```bash
+docker-compose up -d
+```
+
+5. Access the dashboard:
+```
+http://localhost:5173
+```
+
+### Option 2: Manual Setup
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Set up database:
+```bash
+npm run prisma:migrate
+npm run prisma:generate
+```
+
+3. Seed initial data (optional):
+```bash
+npm run db:seed
+```
+
+4. Start development server:
+```bash
+npm run dev
+```
+
+## 🎯 Usage
+
+### Creating a Security Scan
+
+1. **Add a Target**:
+   - Navigate to "Targets" in the sidebar
+   - Click "New Target"
+   - Enter target URL and details
+   - **IMPORTANT**: Only test authorized targets
+
+2. **Start a Scan**:
+   - Go to "Scans"
+   - Click "New Scan"
+   - Select target and configure scan parameters
+   - Start the scan
+
+3. **Monitor Progress**:
+   - View real-time agent activity
+   - Track task completion
+   - See findings as they're discovered
+
+4. **Review Findings**:
+   - Navigate to "Findings"
+   - Filter by severity
+   - Export reports
+
+### API Usage
+
+GraphQL endpoint: `http://localhost:4000/graphql`
+
+Example mutation to start a scan:
+```graphql
+mutation StartScan {
+  createScan(
+    name: "Comprehensive Security Assessment"
+    targetId: "target-uuid"
+    config: {
+      depth: "comprehensive"
+      scanTypes: ["recon", "vuln_scan", "exploit"]
+    }
+  ) {
+    id
+    status
+  }
+}
+```
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│           Tella AI Platform                     │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  ┌──────────────┐      ┌──────────────┐        │
+│  │   Svelte UI  │◄────►│  GraphQL API │        │
+│  │   Dashboard  │      │   (Apollo)   │        │
+│  └──────────────┘      └──────┬───────┘        │
+│                               │                 │
+│                        ┌──────▼───────┐        │
+│                        │ Agent        │        │
+│                        │ Orchestrator │        │
+│                        └──────┬───────┘        │
+│                               │                 │
+│         ┌─────────────────────┼────────┐       │
+│         │                     │        │       │
+│    ┌────▼────┐  ┌────▼────┐  ┌───▼────┐      │
+│    │ Recon   │  │ Scanner │  │Exploiter│      │
+│    │ Agent   │  │ Agent   │  │ Agent   │      │
+│    └────┬────┘  └────┬────┘  └───┬────┘      │
+│         │            │            │            │
+│         └────────────┼────────────┘            │
+│                      │                         │
+│              ┌───────▼────────┐                │
+│              │  Security Tools │                │
+│              │  (Recon, Scan,  │                │
+│              │   Exploit)      │                │
+│              └───────┬─────────┘                │
+│                      │                         │
+│         ┌────────────┼─────────────┐           │
+│         │            │             │           │
+│    ┌────▼────┐  ┌────▼────┐  ┌────▼────┐     │
+│    │PostgreSQL│  │  Redis  │  │  GPT-5  │     │
+│    │   DB     │  │  Queue  │  │   API   │     │
+│    └──────────┘  └─────────┘  └─────────┘     │
+└─────────────────────────────────────────────────┘
+```
+
+## 🔐 Security & Ethics
+
+### ⚠️ CRITICAL WARNING
+
+**This platform is designed for AUTHORIZED security testing ONLY.**
+
+- ✅ Only test systems you own or have explicit written permission to test
+- ✅ Follow responsible disclosure practices
+- ✅ Comply with all applicable laws and regulations
+- ❌ NEVER use for unauthorized access or malicious purposes
+- ❌ NEVER test production systems without proper authorization
+
+### Safe Mode
+
+By default, exploit testing runs in "safe mode" which validates vulnerabilities without causing damage. Aggressive testing requires explicit configuration and authorization.
+
+## 📊 Database Schema
+
+The platform uses a comprehensive schema:
+- **Users & Auth**: Role-based access control
+- **Targets**: Systems under test
+- **Scans**: Security assessment sessions
+- **Agents**: AI agents performing tasks
+- **Tasks**: Individual testing operations
+- **Findings**: Discovered vulnerabilities
+- **Tools**: Security testing tools
+- **Knowledge Base**: AI agent training data
+
+## 🤖 Agent Capabilities
+
+### Orchestrator
+- Task coordination
+- Strategic planning
+- Progress monitoring
+
+### Recon
+- Subdomain enumeration
+- Technology fingerprinting
+- OSINT gathering
+- Certificate transparency
+
+### Scanner
+- Port scanning
+- Vulnerability detection
+- Configuration analysis
+- Header inspection
+
+### Exploiter
+- Exploit validation
+- PoC development
+- Attack chain testing
+
+## 📈 Roadmap
+
+- [ ] GPT-5 integration (when available)
+- [ ] Advanced exploit modules
+- [ ] Custom security tool integration
+- [ ] Report customization
+- [ ] Multi-user collaboration
+- [ ] Distributed scanning
+- [ ] Machine learning for false positive reduction
+
+## 🤝 Contributing
+
+This is a security-focused project. Contributions are welcome but must:
+1. Follow secure coding practices
+2. Include tests
+3. Not introduce vulnerabilities
+4. Respect ethical guidelines
+
+## 📄 License
+
+This project is for educational and authorized security testing purposes only.
+
+## 🔗 Resources
+
+- [OWASP Testing Guide](https://owasp.org/www-project-web-security-testing-guide/)
+- [Prisma Documentation](https://www.prisma.io/docs/)
+- [GraphQL Best Practices](https://graphql.org/learn/best-practices/)
+- [Svelte Documentation](https://svelte.dev/docs)
+
+## 💬 Support
+
+For issues, questions, or feature requests, please open an issue on GitHub.
+
+---
+
+**Built with an attacker's mindset. Used responsibly.** 🛡️

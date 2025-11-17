@@ -1,0 +1,586 @@
+# Tella AI Security - GraphQL Schema
+
+scalar DateTime
+scalar JSON
+
+# ============================================
+# Authentication & Users
+# ============================================
+
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  role: Role!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  scans: [Scan!]!
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+type ApiKey {
+  id: ID!
+  key: String!
+  userId: ID!
+  createdAt: DateTime!
+  expiresAt: DateTime
+  lastUsed: DateTime
+}
+
+# ============================================
+# Targets
+# ============================================
+
+type Target {
+  id: ID!
+  name: String!
+  url: String!
+  description: String
+  type: TargetType!
+  status: TargetStatus!
+  metadata: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  scans: [Scan!]!
+  findings: [Finding!]!
+}
+
+enum TargetType {
+  WEB_APP
+  API
+  MOBILE_APP
+  NETWORK
+  CLOUD_INFRA
+  CUSTOM
+}
+
+enum TargetStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+# ============================================
+# Scans
+# ============================================
+
+type Scan {
+  id: ID!
+  name: String!
+  target: Target!
+  user: User!
+  status: ScanStatus!
+  progress: Float!
+  config: JSON!
+  startedAt: DateTime
+  completedAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  agents: [Agent!]!
+  tasks: [Task!]!
+  findings: [Finding!]!
+  stats: ScanStats!
+}
+
+type ScanStats {
+  totalTasks: Int!
+  completedTasks: Int!
+  failedTasks: Int!
+  totalFindings: Int!
+  criticalFindings: Int!
+  highFindings: Int!
+  mediumFindings: Int!
+  lowFindings: Int!
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+# ============================================
+# AI Agents
+# ============================================
+
+type Agent {
+  id: ID!
+  name: String!
+  type: AgentType!
+  role: String!
+  status: AgentStatus!
+  scan: Scan
+  capabilities: JSON!
+  memory: JSON
+  config: JSON!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  tasks: [Task!]!
+  conversations: [Conversation!]!
+  toolExecutions: [ToolExecution!]!
+}
+
+enum AgentType {
+  ORCHESTRATOR
+  RECON
+  SCANNER
+  EXPLOITER
+  ANALYST
+  REPORTER
+}
+
+enum AgentStatus {
+  IDLE
+  ACTIVE
+  BUSY
+  ERROR
+  TERMINATED
+}
+
+# ============================================
+# Tasks
+# ============================================
+
+type Task {
+  id: ID!
+  agent: Agent!
+  scan: Scan!
+  type: TaskType!
+  description: String!
+  priority: Int!
+  status: TaskStatus!
+  input: JSON!
+  output: JSON
+  error: String
+  retries: Int!
+  maxRetries: Int!
+  startedAt: DateTime
+  completedAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  dependencies: [Task!]!
+  dependents: [Task!]!
+}
+
+enum TaskType {
+  RECON
+  PORT_SCAN
+  VULN_SCAN
+  EXPLOIT
+  ENUMERATE
+  ANALYZE
+  REPORT
+  CUSTOM
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  BLOCKED
+}
+
+# ============================================
+# Findings
+# ============================================
+
+type Finding {
+  id: ID!
+  scan: Scan!
+  target: Target!
+  title: String!
+  description: String!
+  severity: Severity!
+  category: String!
+  cvss: Float
+  cve: String
+  status: FindingStatus!
+  confidence: Float!
+  evidence: JSON!
+  remediation: String
+  references: [String!]!
+  metadata: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingStatus {
+  NEW
+  CONFIRMED
+  FALSE_POSITIVE
+  MITIGATED
+  ACCEPTED
+}
+
+# ============================================
+# Conversations & Memory
+# ============================================
+
+type Conversation {
+  id: ID!
+  agent: Agent!
+  messages: JSON!
+  context: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+# ============================================
+# Tools
+# ============================================
+
+type Tool {
+  id: ID!
+  name: String!
+  description: String!
+  category: ToolCategory!
+  command: String
+  config: JSON!
+  enabled: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  executions: [ToolExecution!]!
+}
+
+enum ToolCategory {
+  RECON
+  SCANNER
+  FUZZER
+  EXPLOIT
+  ENUMERATION
+  ANALYSIS
+  CUSTOM
+}
+
+type ToolExecution {
+  id: ID!
+  tool: Tool!
+  agent: Agent!
+  command: String!
+  args: JSON!
+  status: ExecutionStatus!
+  output: String
+  error: String
+  exitCode: Int
+  duration: Int
+  startedAt: DateTime
+  completedAt: DateTime
+  createdAt: DateTime!
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  TIMEOUT
+  CANCELLED
+}
+
+# ============================================
+# Knowledge Base
+# ============================================
+
+type KnowledgeBase {
+  id: ID!
+  category: String!
+  title: String!
+  content: String!
+  tags: [String!]!
+  metadata: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+# ============================================
+# Queries
+# ============================================
+
+type Query {
+  # Auth
+  me: User
+
+  # Users
+  users: [User!]!
+  user(id: ID!): User
+
+  # Targets
+  targets: [Target!]!
+  target(id: ID!): Target
+
+  # Scans
+  scans(status: ScanStatus): [Scan!]!
+  scan(id: ID!): Scan
+
+  # Agents
+  agents(status: AgentStatus): [Agent!]!
+  agent(id: ID!): Agent
+
+  # Tasks
+  tasks(scanId: ID, status: TaskStatus): [Task!]!
+  task(id: ID!): Task
+
+  # Findings
+  findings(scanId: ID, severity: Severity, status: FindingStatus): [Finding!]!
+  finding(id: ID!): Finding
+
+  # Tools
+  tools(category: ToolCategory): [Tool!]!
+  tool(id: ID!): Tool
+
+  # Tool Executions
+  toolExecutions(agentId: ID, toolId: ID): [ToolExecution!]!
+
+  # Knowledge Base
+  knowledgeBase(category: String, tags: [String!]): [KnowledgeBase!]!
+  searchKnowledge(query: String!): [KnowledgeBase!]!
+
+  # Analytics
+  dashboardStats: DashboardStats!
+}
+
+type DashboardStats {
+  totalScans: Int!
+  activeScans: Int!
+  totalFindings: Int!
+  criticalFindings: Int!
+  activeAgents: Int!
+  completedTasks: Int!
+  recentActivity: [Activity!]!
+}
+
+type Activity {
+  id: ID!
+  type: String!
+  description: String!
+  timestamp: DateTime!
+  metadata: JSON
+}
+
+# ============================================
+# Mutations
+# ============================================
+
+type Mutation {
+  # Auth
+  login(email: String!, password: String!): AuthPayload!
+  register(email: String!, password: String!, name: String!): AuthPayload!
+  createApiKey(expiresAt: DateTime): ApiKey!
+  revokeApiKey(id: ID!): Boolean!
+
+  # Targets
+  createTarget(
+    name: String!
+    url: String!
+    type: TargetType!
+    description: String
+    metadata: JSON
+  ): Target!
+  updateTarget(
+    id: ID!
+    name: String
+    url: String
+    description: String
+    status: TargetStatus
+    metadata: JSON
+  ): Target!
+  deleteTarget(id: ID!): Boolean!
+
+  # Scans
+  createScan(
+    name: String!
+    targetId: ID!
+    config: JSON!
+  ): Scan!
+  startScan(id: ID!): Scan!
+  pauseScan(id: ID!): Scan!
+  resumeScan(id: ID!): Scan!
+  cancelScan(id: ID!): Scan!
+  deleteScan(id: ID!): Boolean!
+
+  # Agents
+  createAgent(
+    name: String!
+    type: AgentType!
+    role: String!
+    capabilities: JSON!
+    config: JSON!
+  ): Agent!
+  updateAgent(
+    id: ID!
+    status: AgentStatus
+    memory: JSON
+    config: JSON
+  ): Agent!
+  terminateAgent(id: ID!): Boolean!
+
+  # Tasks
+  createTask(
+    agentId: ID!
+    scanId: ID!
+    type: TaskType!
+    description: String!
+    input: JSON!
+    priority: Int
+    dependencies: [ID!]
+  ): Task!
+  updateTask(
+    id: ID!
+    status: TaskStatus
+    output: JSON
+    error: String
+  ): Task!
+  retryTask(id: ID!): Task!
+  cancelTask(id: ID!): Boolean!
+
+  # Findings
+  createFinding(
+    scanId: ID!
+    targetId: ID!
+    title: String!
+    description: String!
+    severity: Severity!
+    category: String!
+    evidence: JSON!
+    cvss: Float
+    cve: String
+    confidence: Float
+    remediation: String
+    references: [String!]
+  ): Finding!
+  updateFinding(
+    id: ID!
+    status: FindingStatus
+    description: String
+    remediation: String
+  ): Finding!
+  deleteFinding(id: ID!): Boolean!
+
+  # Tools
+  createTool(
+    name: String!
+    description: String!
+    category: ToolCategory!
+    command: String
+    config: JSON!
+  ): Tool!
+  updateTool(
+    id: ID!
+    description: String
+    command: String
+    config: JSON
+    enabled: Boolean
+  ): Tool!
+  deleteTool(id: ID!): Boolean!
+
+  # Tool Execution
+  executeTool(
+    toolId: ID!
+    agentId: ID!
+    args: JSON!
+  ): ToolExecution!
+
+  # Knowledge Base
+  addKnowledge(
+    category: String!
+    title: String!
+    content: String!
+    tags: [String!]!
+    metadata: JSON
+  ): KnowledgeBase!
+  updateKnowledge(
+    id: ID!
+    title: String
+    content: String
+    tags: [String!]
+    metadata: JSON
+  ): KnowledgeBase!
+  deleteKnowledge(id: ID!): Boolean!
+
+  # Agent Actions
+  agentThink(agentId: ID!, context: JSON!): AgentThought!
+  agentExecute(agentId: ID!, action: String!, params: JSON!): AgentExecutionResult!
+}
+
+type AgentThought {
+  thought: String!
+  reasoning: String!
+  nextActions: [String!]!
+}
+
+type AgentExecutionResult {
+  success: Boolean!
+  result: JSON
+  error: String
+  observations: String!
+}
+
+# ============================================
+# Subscriptions (Real-time updates)
+# ============================================
+
+type Subscription {
+  # Scan updates
+  scanUpdated(scanId: ID!): Scan!
+  scanProgress(scanId: ID!): ScanProgress!
+
+  # Agent updates
+  agentStatusChanged(agentId: ID): AgentStatusUpdate!
+  agentThinking(agentId: ID!): AgentThought!
+
+  # Task updates
+  taskUpdated(scanId: ID): Task!
+
+  # Finding updates
+  findingDiscovered(scanId: ID): Finding!
+
+  # Tool execution updates
+  toolExecutionUpdated(agentId: ID): ToolExecution!
+
+  # Real-time logs
+  agentLogs(agentId: ID!): LogEntry!
+  scanLogs(scanId: ID!): LogEntry!
+}
+
+type ScanProgress {
+  scanId: ID!
+  progress: Float!
+  currentTask: String
+  eta: Int
+}
+
+type AgentStatusUpdate {
+  agentId: ID!
+  status: AgentStatus!
+  currentTask: String
+}
+
+type LogEntry {
+  timestamp: DateTime!
+  level: String!
+  message: String!
+  metadata: JSON
+}

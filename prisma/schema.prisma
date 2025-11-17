@@ -1,0 +1,310 @@
+// Tella AI Security - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User management
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(OPERATOR)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scans     Scan[]
+  apiKeys   ApiKey[]
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+  lastUsed  DateTime?
+}
+
+// Security testing entities
+model Target {
+  id          String   @id @default(uuid())
+  name        String
+  url         String
+  description String?
+  type        TargetType
+  status      TargetStatus @default(ACTIVE)
+  metadata    Json?    // Additional target info
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scans       Scan[]
+  findings    Finding[]
+}
+
+enum TargetType {
+  WEB_APP
+  API
+  MOBILE_APP
+  NETWORK
+  CLOUD_INFRA
+  CUSTOM
+}
+
+enum TargetStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model Scan {
+  id          String     @id @default(uuid())
+  name        String
+  targetId    String
+  target      Target     @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+  status      ScanStatus @default(QUEUED)
+  progress    Float      @default(0)
+  config      Json       // Scan configuration
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  agents      Agent[]
+  tasks       Task[]
+  findings    Finding[]
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// AI Agent system
+model Agent {
+  id          String      @id @default(uuid())
+  name        String
+  type        AgentType
+  role        String      // e.g., "reconnaissance", "exploitation", "reporting"
+  status      AgentStatus @default(IDLE)
+  scanId      String?
+  scan        Scan?       @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  capabilities Json       // List of tools/capabilities
+  memory      Json?       // Agent's working memory
+  config      Json        // Agent configuration
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tasks       Task[]
+  conversations Conversation[]
+  toolExecutions ToolExecution[]
+}
+
+enum AgentType {
+  ORCHESTRATOR  // Main coordinating agent
+  RECON         // Reconnaissance specialist
+  SCANNER       // Vulnerability scanner
+  EXPLOITER     // Exploitation specialist
+  ANALYST       // Result analyzer
+  REPORTER      // Report generator
+}
+
+enum AgentStatus {
+  IDLE
+  ACTIVE
+  BUSY
+  ERROR
+  TERMINATED
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  agentId     String
+  agent       Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  scanId      String
+  scan        Scan       @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  type        TaskType
+  description String
+  priority    Int        @default(5)
+  status      TaskStatus @default(PENDING)
+  input       Json
+  output      Json?
+  error       String?
+  retries     Int        @default(0)
+  maxRetries  Int        @default(3)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents   TaskDependency[] @relation("RequiredTask")
+}
+
+enum TaskType {
+  RECON
+  PORT_SCAN
+  VULN_SCAN
+  EXPLOIT
+  ENUMERATE
+  ANALYZE
+  REPORT
+  CUSTOM
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  BLOCKED
+}
+
+model TaskDependency {
+  id            String   @id @default(uuid())
+  taskId        String
+  task          Task     @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnId   String
+  dependsOn     Task     @relation("RequiredTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([taskId, dependsOnId])
+}
+
+// Security findings
+model Finding {
+  id          String         @id @default(uuid())
+  scanId      String
+  scan        Scan           @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  targetId    String
+  target      Target         @relation(fields: [targetId], references: [id])
+  title       String
+  description String
+  severity    Severity
+  category    String         // OWASP category, CWE, etc.
+  cvss        Float?
+  cve         String?
+  status      FindingStatus  @default(NEW)
+  confidence  Float          @default(1.0)
+  evidence    Json           // Screenshots, request/response, etc.
+  remediation String?
+  references  String[]
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingStatus {
+  NEW
+  CONFIRMED
+  FALSE_POSITIVE
+  MITIGATED
+  ACCEPTED
+}
+
+// Agent conversation memory
+model Conversation {
+  id        String   @id @default(uuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages  Json     // Array of messages
+  context   Json?    // Conversation context
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Security tools available to agents
+model Tool {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  category    ToolCategory
+  command     String?  // CLI command template
+  config      Json     // Tool-specific configuration
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  executions  ToolExecution[]
+}
+
+enum ToolCategory {
+  RECON
+  SCANNER
+  FUZZER
+  EXPLOIT
+  ENUMERATION
+  ANALYSIS
+  CUSTOM
+}
+
+model ToolExecution {
+  id          String            @id @default(uuid())
+  toolId      String
+  tool        Tool              @relation(fields: [toolId], references: [id])
+  agentId     String
+  agent       Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  command     String
+  args        Json
+  status      ExecutionStatus
+  output      String?
+  error       String?
+  exitCode    Int?
+  duration    Int?              // milliseconds
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  TIMEOUT
+  CANCELLED
+}
+
+// Knowledge base for AI agents
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  category    String
+  title       String
+  content     String
+  tags        String[]
+  metadata    Json?
+  embedding   Float[]? // Vector embedding for semantic search
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([tags])
+}
