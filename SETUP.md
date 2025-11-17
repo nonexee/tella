@@ -1,8 +1,6 @@
 # Tella AI Security - Setup Guide
 
-## ⚠️ CRITICAL: First-Time Setup
-
-After cloning this repository, you MUST run database migrations before starting the application.
+## 🚀 Quick Start (3 Steps!)
 
 ### 1. Install Dependencies
 
@@ -23,38 +21,7 @@ Then edit `.env` and configure:
 - `JWT_SECRET` - MUST be at least 32 characters
 - `CORS_ORIGIN` - Your frontend URLs (NO wildcards in production!)
 
-### 3. Run Database Migrations
-
-**CRITICAL**: The Prisma schema has unique constraints that don't exist yet in your database.
-
-```bash
-# Development
-npx prisma migrate dev
-
-# Production
-npx prisma migrate deploy
-```
-
-This creates:
-- All database tables
-- Unique constraint on `Target.url`
-- Unique constraint on `KnowledgeBase(category, title)`
-
-### 4. Seed Database (Optional)
-
-```bash
-npm run db:seed
-```
-
-Creates:
-- Admin user (email: `admin@tella.ai`, password: `Admin123!@#`)
-- Sample security tools
-- Knowledge base entries
-- Demo target
-
-**Note**: Seed script is idempotent - safe to run multiple times.
-
-### 5. Start Application
+### 3. Start Application
 
 ```bash
 # Development (with hot reload)
@@ -65,6 +32,11 @@ npm run build
 npm start
 ```
 
+**That's it!** The app automatically:
+- ✅ Syncs database schema (no migrations needed!)
+- ✅ Seeds initial data (admin user, tools, knowledge base)
+- ✅ Starts the server
+
 ## Docker Setup
 
 ```bash
@@ -72,10 +44,7 @@ npm start
 docker-compose up -d
 ```
 
-The docker-compose setup automatically:
-- Runs migrations on startup
-- Seeds the database
-- Starts the application
+Docker automatically handles everything - just start it!
 
 ## Health Check
 
@@ -120,22 +89,24 @@ Before deploying to production:
 
 ## Troubleshooting
 
-### "Unique constraint violation" errors
+### Database connection fails
 
-Run migrations:
-```bash
-npx prisma migrate deploy
-```
+Check:
+- PostgreSQL is running
+- `DATABASE_URL` in `.env` is correct
+- Database exists (create with `createdb tella_ai`)
 
-### "Connection pool exhausted" errors
+### Schema sync fails
 
-Check that you're not creating multiple PrismaClient instances. All code should import from `src/server/utils/prisma.ts`.
+The app automatically syncs the schema on startup. If it fails:
+- Check database permissions
+- Verify PostgreSQL version (14+)
+- Check logs for detailed error
 
 ### Seed script fails
 
-Migrations may not be applied. Run:
+The app seeds automatically on first run. To re-seed:
 ```bash
-npx prisma migrate deploy
 npm run db:seed
 ```
 
@@ -153,7 +124,7 @@ src/
 │   ├── ai/              # Agent orchestrator & AI logic
 │   ├── graphql/         # GraphQL schema & resolvers
 │   ├── tools/           # Security testing tools
-│   ├── utils/           # Utilities (auth, logger, prisma)
+│   ├── utils/           # Utilities (auth, logger, prisma, db-init)
 │   ├── db/              # Database seeders
 │   └── index.ts         # Main server entry point
 ├── client/

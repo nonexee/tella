@@ -31,6 +31,7 @@ import { resolvers } from './graphql/resolvers.js';
 import { authenticateUser } from './utils/auth.js';
 import { logger } from './utils/logger.js';
 import { prisma } from './utils/prisma.js';
+import { initializeDatabase } from './utils/db-init.js';
 
 // Load environment variables
 dotenv.config();
@@ -84,6 +85,9 @@ const authLimiter = rateLimit({
 
 async function initializeServer() {
   try {
+    // Initialize database (auto-sync schema + seed)
+    await initializeDatabase();
+
     // Load GraphQL schema asynchronously
     logger.info('Loading GraphQL schema...');
     const schemaPath = join(__dirname, 'graphql', 'schema.graphql');
