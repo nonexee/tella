@@ -16,7 +16,7 @@
  */
 
 import { OpenAI } from 'openai';
-import { Agent, AgentType, AgentStatus, Task, TaskStatus } from '@prisma/client';
+import { Agent, AgentType, AgentStatus, Task, TaskStatus, PrismaClient } from '@prisma/client';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
@@ -65,7 +65,7 @@ export class AgentOrchestrator extends EventEmitter {
   private openai: OpenAI;
   private securityTools: SecurityTools;
   private activeAgents: Map<string, AgentRunner>;
-  private openaiLimiter: pLimit.Limit;
+  private openaiLimiter: any;
   private isShuttingDown: boolean = false;
   private sigtermHandler: () => void;
   private sigintHandler: () => void;
@@ -241,25 +241,25 @@ export class AgentOrchestrator extends EventEmitter {
           type: AgentType.ORCHESTRATOR,
           role: 'Main coordinator',
           scanId,
-          config: scan.config
+          config: scan.config as any
         }),
         this.createAgent({
           type: AgentType.RECON,
           role: 'Reconnaissance specialist',
           scanId,
-          config: scan.config
+          config: scan.config as any
         }),
         this.createAgent({
           type: AgentType.SCANNER,
           role: 'Vulnerability scanner',
           scanId,
-          config: scan.config
+          config: scan.config as any
         }),
         this.createAgent({
           type: AgentType.EXPLOITER,
           role: 'Exploitation specialist',
           scanId,
-          config: scan.config
+          config: scan.config as any
         })
       ]);
 
@@ -447,7 +447,7 @@ class AgentRunner {
   private running: boolean = false;
   private memory: AgentMemory;
   private systemPrompt: string;
-  private openaiLimiter: pLimit.Limit;
+  private openaiLimiter: any;
   private isShuttingDown: () => boolean;
   private currentTaskAbortController: AbortController | null = null;
 
@@ -456,7 +456,7 @@ class AgentRunner {
     openai: OpenAI,
     prismaClient: PrismaClient,
     securityTools: SecurityTools,
-    openaiLimiter: pLimit.Limit,
+    openaiLimiter: any,
     isShuttingDown: () => boolean
   ) {
     this.agent = agent;
@@ -466,7 +466,7 @@ class AgentRunner {
     this.openaiLimiter = openaiLimiter;
     this.isShuttingDown = isShuttingDown;
 
-    this.memory = (agent.memory as AgentMemory) || {
+    this.memory = (agent.memory as unknown as AgentMemory) || {
       shortTerm: [],
       longTerm: [],
       workingContext: {}

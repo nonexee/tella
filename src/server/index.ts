@@ -190,7 +190,8 @@ async function initializeServer() {
         schema,
         context: async (ctx) => {
           // Authentication for WebSocket connections
-          const token = ctx.connectionParams?.authorization?.replace('Bearer ', '');
+          const authHeader = (ctx.connectionParams as any)?.authorization;
+          const token = typeof authHeader === 'string' ? authHeader.replace('Bearer ', '') : null;
           if (token) {
             try {
               const user = await authenticateUser(token);

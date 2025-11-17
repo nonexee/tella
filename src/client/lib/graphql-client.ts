@@ -12,7 +12,7 @@
 import { authStore, updateTokens, logout } from '../stores/auth';
 import { get } from 'svelte/store';
 
-const GRAPHQL_ENDPOINT = import.meta.env.VITE_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
+const GRAPHQL_ENDPOINT = (import.meta as any).env?.VITE_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
 
 // Global promise cache to prevent concurrent refresh attempts
 let refreshPromise: Promise<void> | null = null;

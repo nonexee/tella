@@ -13,7 +13,7 @@
  */
 
 import { User, Scan, Agent, Task, Finding, Target, Tool } from '@prisma/client';
-import { GraphQLError } from 'graphql';
+import { GraphQLError, ValueNode } from 'graphql';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import {
@@ -64,13 +64,13 @@ const createTargetSchema = z.object({
   url: z.string().url(),
   type: z.enum(['WEB_APP', 'API', 'MOBILE_APP', 'NETWORK', 'CLOUD_INFRA', 'CUSTOM']),
   description: z.string().optional(),
-  metadata: z.any().optional()
+  metadata: z.record(z.unknown()).optional()
 });
 
 const createScanSchema = z.object({
   name: z.string().min(1).max(255),
   targetId: z.string().uuid(),
-  config: z.any()
+  config: z.record(z.unknown())
 });
 
 const createFindingSchema = z.object({
@@ -80,7 +80,7 @@ const createFindingSchema = z.object({
   description: z.string().min(1),
   severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']),
   category: z.string().min(1),
-  evidence: z.any(),
+  evidence: z.record(z.unknown()),
   cvss: z.number().min(0).max(10).optional(),
   cve: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
@@ -150,13 +150,38 @@ function validatePagination(args: PaginationArgs): { limit: number; offset: numb
 const dateScalar = {
   serialize: (value: Date): string => value.toISOString(),
   parseValue: (value: string): Date => new Date(value),
-  parseLiteral: (ast: any): Date => new Date(ast.value)
+  parseLiteral: (ast: ValueNode): Date => {
+    if (ast.kind === 'StringValue') {
+      return new Date(ast.value);
+    }
+    throw new GraphQLError('Date scalar can only parse string values');
+  }
 };
 
 const jsonScalar = {
-  serialize: (value: any): any => value,
-  parseValue: (value: any): any => value,
-  parseLiteral: (ast: any): any => ast.value
+  serialize: (value: unknown): unknown => value,
+  parseValue: (value: unknown): unknown => value,
+  parseLiteral: (ast: ValueNode): unknown => {
+    switch (ast.kind) {
+      case 'StringValue':
+      case 'BooleanValue':
+        return ast.value;
+      case 'IntValue':
+      case 'FloatValue':
+        return parseFloat(ast.value);
+      case 'ObjectValue':
+        return ast.fields.reduce((obj, field) => {
+          obj[field.name.value] = jsonScalar.parseLiteral(field.value);
+          return obj;
+        }, {} as Record<string, unknown>);
+      case 'ListValue':
+        return ast.values.map(jsonScalar.parseLiteral);
+      case 'NullValue':
+        return null;
+      default:
+        throw new GraphQLError(`Unexpected kind in JSON scalar: ${ast.kind}`);
+    }
+  }
 };
 
 // ============================================
@@ -193,7 +218,7 @@ export const resolvers = {
           updatedAt: true,
           password: false // Never return password
         }
-      }) as Promise<User[]>;
+      }) as any;
     },
 
     user: async (
@@ -214,7 +239,7 @@ export const resolvers = {
           updatedAt: true,
           password: false
         }
-      }) as Promise<User | null>;
+      }) as any;
     },
 
     targets: async (
@@ -224,9 +249,11 @@ export const resolvers = {
     ): Promise<Target[]> => {
       requirePermission(context, 'target:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.target.findMany({
-        take: args.limit || 50,
-        skip: args.offset || 0
+        take: limit,
+        skip: offset
       });
     },
 
@@ -247,10 +274,12 @@ export const resolvers = {
     ): Promise<Scan[]> => {
       requirePermission(context, 'scan:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.scan.findMany({
         where: args.status ? { status: args.status as any } : undefined,
-        take: args.limit || 50,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         include: {
           target: true,
           user: {
@@ -305,10 +334,12 @@ export const resolvers = {
     ): Promise<Agent[]> => {
       requirePermission(context, 'agent:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.agent.findMany({
         where: args.status ? { status: args.status as any } : undefined,
-        take: args.limit || 50,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         include: {
           scan: true,
           tasks: true
@@ -339,13 +370,15 @@ export const resolvers = {
     ): Promise<Task[]> => {
       requirePermission(context, 'scan:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.task.findMany({
         where: {
           ...(args.scanId && { scanId: args.scanId }),
           ...(args.status && { status: args.status as any })
         },
-        take: args.limit || 50,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         include: {
           agent: true,
           scan: true
@@ -376,14 +409,16 @@ export const resolvers = {
     ): Promise<Finding[]> => {
       requirePermission(context, 'finding:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.finding.findMany({
         where: {
           ...(args.scanId && { scanId: args.scanId }),
           ...(args.severity && { severity: args.severity as any }),
           ...(args.status && { status: args.status as any })
         },
-        take: args.limit || 100,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         include: {
           scan: true,
           target: true
@@ -414,10 +449,12 @@ export const resolvers = {
     ): Promise<Tool[]> => {
       requirePermission(context, 'tool:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.tool.findMany({
         where: args.category ? { category: args.category as any } : undefined,
-        take: args.limit || 50,
-        skip: args.offset || 0
+        take: limit,
+        skip: offset
       });
     },
 
@@ -438,13 +475,15 @@ export const resolvers = {
     ) => {
       requirePermission(context, 'tool:read');
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.toolExecution.findMany({
         where: {
           ...(args.agentId && { agentId: args.agentId }),
           ...(args.toolId && { toolId: args.toolId })
         },
-        take: args.limit || 50,
-        skip: args.offset || 0,
+        take: limit,
+        skip: offset,
         include: {
           tool: true,
           agent: true
@@ -459,13 +498,15 @@ export const resolvers = {
     ) => {
       requireAuth(context);
 
+      const { limit, offset } = validatePagination(args);
+
       return prisma.knowledgeBase.findMany({
         where: {
           ...(args.category && { category: args.category }),
           ...(args.tags && { tags: { hasSome: args.tags } })
         },
-        take: args.limit || 50,
-        skip: args.offset || 0
+        take: limit,
+        skip: offset
       });
     },
 
@@ -722,7 +763,11 @@ export const resolvers = {
       const target = await prisma.target.create({
         data: {
           id: uuidv4(),
-          ...validatedData,
+          name: validatedData.name,
+          url: validatedData.url,
+          type: validatedData.type,
+          description: validatedData.description,
+          metadata: validatedData.metadata as any,
           status: 'ACTIVE'
         }
       });
@@ -768,7 +813,7 @@ export const resolvers = {
           name: validatedData.name,
           targetId: validatedData.targetId,
           userId: user.id,
-          config: validatedData.config,
+          config: validatedData.config as any,
           status: 'QUEUED',
           progress: 0
         },
@@ -1041,8 +1086,17 @@ export const resolvers = {
       const finding = await prisma.finding.create({
         data: {
           id: uuidv4(),
-          ...validatedData,
+          scanId: validatedData.scanId,
+          targetId: validatedData.targetId,
+          title: validatedData.title,
+          description: validatedData.description,
+          severity: validatedData.severity,
+          category: validatedData.category,
+          evidence: validatedData.evidence as any,
+          cvss: validatedData.cvss,
+          cve: validatedData.cve,
           confidence: validatedData.confidence || 1.0,
+          remediation: validatedData.remediation,
           references: validatedData.references || [],
           status: 'NEW'
         },
