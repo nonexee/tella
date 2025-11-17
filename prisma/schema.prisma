@@ -43,7 +43,7 @@ model ApiKey {
 model Target {
   id          String   @id @default(uuid())
   name        String
-  url         String
+  url         String   @unique
   description String?
   type        TargetType
   status      TargetStatus @default(ACTIVE)
@@ -305,6 +305,7 @@ model KnowledgeBase {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@unique([category, title], name: "category_title")
   @@index([category])
   @@index([tags])
 }

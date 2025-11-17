@@ -16,11 +16,12 @@
  */
 
 import { OpenAI } from 'openai';
-import { PrismaClient, Agent, AgentType, AgentStatus, Task, TaskStatus } from '@prisma/client';
+import { Agent, AgentType, AgentStatus, Task, TaskStatus } from '@prisma/client';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
+import { prisma } from '../utils/prisma.js';
 import pLimit from 'p-limit';
 
 const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
@@ -59,7 +60,6 @@ export interface KnowledgeItem {
 
 export class AgentOrchestrator extends EventEmitter {
   private openai: OpenAI;
-  private prisma: PrismaClient;
   private securityTools: SecurityTools;
   private activeAgents: Map<string, AgentRunner>;
   private openaiLimiter: pLimit.Limit;
@@ -77,7 +77,6 @@ export class AgentOrchestrator extends EventEmitter {
       maxRetries: 3,
       timeout: 60000
     });
-    this.prisma = new PrismaClient();
     this.securityTools = new SecurityTools();
     this.activeAgents = new Map();
     this.openaiLimiter = pLimit(OPENAI_RATE_LIMIT);
@@ -118,12 +117,8 @@ export class AgentOrchestrator extends EventEmitter {
       // Force shutdown by clearing active agents
       this.activeAgents.clear();
     } finally {
-      // Always disconnect from database
-      try {
-        await this.prisma.$disconnect();
-      } catch (error) {
-        logger.error('Error disconnecting Prisma:', error);
-      }
+      // Database disconnection handled by centralized prisma client
+      logger.info('Prisma will be disconnected by centralized client');
 
       logger.info('Agent Orchestrator shut down complete');
     }
@@ -140,7 +135,7 @@ export class AgentOrchestrator extends EventEmitter {
   }): Promise<Agent> {
     const capabilities = this.getAgentCapabilities(params.type);
 
-    const agent = await this.prisma.agent.create({
+    const agent = await prisma.agent.create({
       data: {
         id: uuidv4(),
         name: `${params.type}-${Date.now()}`,
@@ -170,7 +165,7 @@ export class AgentOrchestrator extends EventEmitter {
       throw new Error('Cannot start agent during shutdown');
     }
 
-    const agent = await this.prisma.agent.findUnique({
+    const agent = await prisma.agent.findUnique({
       where: { id: agentId },
       include: { scan: true }
     });
@@ -188,7 +183,7 @@ export class AgentOrchestrator extends EventEmitter {
     const runner = new AgentRunner(
       agent,
       this.openai,
-      this.prisma,
+      prisma,
       this.securityTools,
       this.openaiLimiter,
       () => this.isShuttingDown
@@ -197,7 +192,7 @@ export class AgentOrchestrator extends EventEmitter {
     this.activeAgents.set(agentId, runner);
 
     // Update status
-    await this.prisma.agent.update({
+    await prisma.agent.update({
       where: { id: agentId },
       data: { status: AgentStatus.ACTIVE }
     });
@@ -216,7 +211,7 @@ export class AgentOrchestrator extends EventEmitter {
    * Coordinate multiple agents for a security scan
    */
   async orchestrateScan(scanId: string): Promise<void> {
-    const scan = await this.prisma.scan.findUnique({
+    const scan = await prisma.scan.findUnique({
       where: { id: scanId },
       include: { target: true }
     });
@@ -295,7 +290,7 @@ export class AgentOrchestrator extends EventEmitter {
     priority?: number;
     dependencies?: string[];
   }): Promise<Task> {
-    const task = await this.prisma.task.create({
+    const task = await prisma.task.create({
       data: {
         id: uuidv4(),
         agentId: params.agentId,
@@ -407,7 +402,7 @@ export class AgentOrchestrator extends EventEmitter {
    * Stop all agents for a scan
    */
   async stopScan(scanId: string): Promise<void> {
-    const agents = await this.prisma.agent.findMany({
+    const agents = await prisma.agent.findMany({
       where: { scanId }
     });
 
@@ -418,7 +413,7 @@ export class AgentOrchestrator extends EventEmitter {
         this.activeAgents.delete(agent.id);
       }
 
-      await this.prisma.agent.update({
+      await prisma.agent.update({
         where: { id: agent.id },
         data: { status: AgentStatus.TERMINATED }
       });
@@ -454,7 +449,7 @@ class AgentRunner {
   ) {
     this.agent = agent;
     this.openai = openai;
-    this.prisma = prisma;
+    prisma = prisma;
     this.securityTools = securityTools;
     this.openaiLimiter = openaiLimiter;
     this.isShuttingDown = isShuttingDown;
@@ -599,7 +594,7 @@ As a reporter:
 
     try {
       // Update task status
-      await this.prisma.task.update({
+      await prisma.task.update({
         where: { id: task.id },
         data: {
           status: TaskStatus.RUNNING,
@@ -650,7 +645,7 @@ As a reporter:
         });
 
         // Update task with results
-        await this.prisma.task.update({
+        await prisma.task.update({
           where: { id: task.id },
           data: {
             status: TaskStatus.COMPLETED,
@@ -669,7 +664,7 @@ As a reporter:
           timestamp: new Date()
         });
 
-        await this.prisma.task.update({
+        await prisma.task.update({
           where: { id: task.id },
           data: {
             status: TaskStatus.COMPLETED,
@@ -696,7 +691,7 @@ As a reporter:
 
       // Check if we should retry
       if (task.retries < task.maxRetries && !isTimeout) {
-        await this.prisma.task.update({
+        await prisma.task.update({
           where: { id: task.id },
           data: {
             status: TaskStatus.PENDING,
@@ -706,7 +701,7 @@ As a reporter:
         });
         logger.info(`Will retry task ${task.id} (attempt ${task.retries + 1}/${task.maxRetries})`);
       } else {
-        await this.prisma.task.update({
+        await prisma.task.update({
           where: { id: task.id },
           data: {
             status: TaskStatus.FAILED,
@@ -752,7 +747,7 @@ As a reporter:
    */
   private async persistMemory(): Promise<void> {
     try {
-      await this.prisma.agent.update({
+      await prisma.agent.update({
         where: { id: this.agent.id },
         data: {
           memory: this.memory as any,
@@ -960,7 +955,7 @@ As a reporter:
       throw new Error('Agent not associated with a scan');
     }
 
-    const scan = await this.prisma.scan.findUnique({
+    const scan = await prisma.scan.findUnique({
       where: { id: this.agent.scanId }
     });
 
@@ -968,7 +963,7 @@ As a reporter:
       throw new Error('Scan not found');
     }
 
-    const finding = await this.prisma.finding.create({
+    const finding = await prisma.finding.create({
       data: {
         id: uuidv4(),
         scanId: this.agent.scanId,
@@ -1000,7 +995,7 @@ As a reporter:
     }
 
     // Find an agent of the requested type
-    const targetAgent = await this.prisma.agent.findFirst({
+    const targetAgent = await prisma.agent.findFirst({
       where: {
         scanId: this.agent.scanId,
         type: args.agent_type,
@@ -1012,7 +1007,7 @@ As a reporter:
       throw new Error(`No available agent of type ${args.agent_type} found for this scan`);
     }
 
-    const task = await this.prisma.task.create({
+    const task = await prisma.task.create({
       data: {
         id: uuidv4(),
         agentId: targetAgent.id,
@@ -1036,12 +1031,12 @@ As a reporter:
   private async recordToolExecution(toolName: string, args: any, result: any): Promise<void> {
     try {
       // Find or create tool
-      let tool = await this.prisma.tool.findUnique({
+      let tool = await prisma.tool.findUnique({
         where: { name: toolName }
       });
 
       if (!tool) {
-        tool = await this.prisma.tool.create({
+        tool = await prisma.tool.create({
           data: {
             id: uuidv4(),
             name: toolName,
@@ -1053,7 +1048,7 @@ As a reporter:
         });
       }
 
-      await this.prisma.toolExecution.create({
+      await prisma.toolExecution.create({
         data: {
           id: uuidv4(),
           toolId: tool.id,
@@ -1076,7 +1071,7 @@ As a reporter:
    * Get next task from queue
    */
   private async getNextTask(): Promise<Task | null> {
-    const tasks = await this.prisma.task.findMany({
+    const tasks = await prisma.task.findMany({
       where: {
         agentId: this.agent.id,
         status: TaskStatus.PENDING
@@ -1118,7 +1113,7 @@ As a reporter:
     await this.persistMemory();
 
     // Update agent status
-    await this.prisma.agent.update({
+    await prisma.agent.update({
       where: { id: this.agent.id },
       data: { status: AgentStatus.IDLE }
     });

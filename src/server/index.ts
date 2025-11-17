@@ -30,6 +30,7 @@ import dotenv from 'dotenv';
 import { resolvers } from './graphql/resolvers.js';
 import { authenticateUser } from './utils/auth.js';
 import { logger } from './utils/logger.js';
+import { prisma } from './utils/prisma.js';
 
 // Load environment variables
 dotenv.config();
@@ -130,6 +131,32 @@ async function initializeServer() {
         });
       });
       next();
+    });
+
+    // ============================================
+    // Health Check Endpoint (no auth, no rate limit)
+    // ============================================
+
+    app.get('/health', async (req, res) => {
+      try {
+        // Check database connection
+        await prisma.$queryRaw`SELECT 1`;
+
+        res.status(200).json({
+          status: 'healthy',
+          timestamp: new Date().toISOString(),
+          uptime: process.uptime(),
+          database: 'connected'
+        });
+      } catch (error) {
+        logger.error('Health check failed', { error });
+        res.status(503).json({
+          status: 'unhealthy',
+          timestamp: new Date().toISOString(),
+          database: 'disconnected',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     });
 
     // Apply rate limiting

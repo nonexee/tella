@@ -12,10 +12,8 @@
 
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
-
-const prisma = new PrismaClient();
+import { prisma } from './prisma.js';
 
 // Validation schemas
 export const passwordSchema = z.string()

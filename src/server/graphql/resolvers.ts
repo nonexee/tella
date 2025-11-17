@@ -12,7 +12,7 @@
  * - Replaced all 'any' types with proper types
  */
 
-import { PrismaClient, User, Scan, Agent, Task, Finding, Target, Tool } from '@prisma/client';
+import { User, Scan, Agent, Task, Finding, Target, Tool } from '@prisma/client';
 import { GraphQLError } from 'graphql';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
@@ -30,8 +30,8 @@ import {
 } from '../utils/auth.js';
 import { AgentOrchestrator } from '../ai/agent-orchestrator.js';
 import { PubSub } from 'graphql-subscriptions';
+import { prisma } from '../utils/prisma.js';
 
-const prisma = new PrismaClient();
 const pubsub = new PubSub();
 const orchestrator = new AgentOrchestrator();
 

@@ -1,16 +1,17 @@
 /**
  * Database Seeder
  * Creates initial data for development and testing
+ *
+ * IDEMPOTENT: Can be run multiple times without errors
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
 import { hashPassword } from '../utils/auth.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const prisma = new PrismaClient();
-
 async function main() {
   console.log('🌱 Seeding database...');
+  console.log('ℹ️  This script is idempotent and safe to run multiple times\n');
 
   // Create admin user
   // Password meets requirements: 8+ chars, uppercase, lowercase, number, special char
@@ -100,8 +101,19 @@ async function main() {
   ];
 
   for (const item of knowledge) {
-    await prisma.knowledgeBase.create({
-      data: {
+    await prisma.knowledgeBase.upsert({
+      where: {
+        // Composite unique key: category + title
+        category_title: {
+          category: item.category,
+          title: item.title
+        }
+      },
+      update: {
+        content: item.content,
+        tags: item.tags
+      },
+      create: {
         id: uuidv4(),
         ...item,
         metadata: {}
@@ -109,11 +121,16 @@ async function main() {
     });
   }
 
-  console.log(`✅ Created ${knowledge.length} knowledge base entries`);
+  console.log(`✅ Upserted ${knowledge.length} knowledge base entries`);
 
   // Create sample target
-  const target = await prisma.target.create({
-    data: {
+  const target = await prisma.target.upsert({
+    where: { url: 'https://demo.testfire.net' },
+    update: {
+      description: 'Sample vulnerable web application for testing',
+      status: 'ACTIVE'
+    },
+    create: {
       id: uuidv4(),
       name: 'Demo Target',
       url: 'https://demo.testfire.net',
@@ -126,7 +143,7 @@ async function main() {
     }
   });
 
-  console.log('✅ Created demo target:', target.name);
+  console.log('✅ Upserted demo target:', target.name);
 
   console.log('🎉 Database seeding completed!');
   console.log('\n📝 Default credentials:');
