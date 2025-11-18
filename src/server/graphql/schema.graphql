@@ -83,6 +83,7 @@ type Scan {
   status: ScanStatus!
   progress: Float!
   config: JSON!
+  error: String
   startedAt: DateTime
   completedAt: DateTime
   createdAt: DateTime!
