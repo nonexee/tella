@@ -43,8 +43,10 @@ export function validateEnvironment(): ValidationResult {
     errors.push('JWT_SECRET is required');
   } else if (process.env.JWT_SECRET.length < 32) {
     errors.push('JWT_SECRET must be at least 32 characters long');
-  } else if (process.env.JWT_SECRET === 'your-super-secret-jwt-key-at-least-32-characters-long') {
-    errors.push('JWT_SECRET must be changed from the example value!');
+  } else if (IS_PRODUCTION && process.env.JWT_SECRET === 'your-super-secret-jwt-key-at-least-32-characters-long') {
+    errors.push('JWT_SECRET must be changed from the example value in production!');
+  } else if (!IS_PRODUCTION && process.env.JWT_SECRET === 'your-super-secret-jwt-key-at-least-32-characters-long') {
+    warnings.push('JWT_SECRET is using example value - change this in production!');
   }
 
   // CRITICAL IN PRODUCTION: CORS Configuration
