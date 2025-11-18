@@ -78,6 +78,15 @@
       <span class="icon">🔧</span>
       <span>Tools</span>
     </button>
+
+    <button
+      class="nav-item"
+      class:active={activeView === 'settings'}
+      on:click={() => navigate('settings')}
+    >
+      <span class="icon">⚙️</span>
+      <span>Settings</span>
+    </button>
   </nav>
 
   <div class="sidebar-footer">

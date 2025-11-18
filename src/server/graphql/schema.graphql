@@ -318,6 +318,24 @@ type KnowledgeBase {
 }
 
 # ============================================
+# System Settings
+# ============================================
+
+type SystemSettings {
+  id: ID!
+  key: String!
+  value: String!
+  encrypted: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type SystemSettingsPayload {
+  success: Boolean!
+  message: String
+}
+
+# ============================================
 # Queries
 # ============================================
 
@@ -359,6 +377,10 @@ type Query {
   # Knowledge Base
   knowledgeBase(category: String, tags: [String!]): [KnowledgeBase!]!
   searchKnowledge(query: String!): [KnowledgeBase!]!
+
+  # System Settings
+  systemSettings(key: String): [SystemSettings!]!
+  systemSetting(key: String!): SystemSettings
 
   # Analytics
   dashboardStats: DashboardStats!
@@ -522,6 +544,10 @@ type Mutation {
     metadata: JSON
   ): KnowledgeBase!
   deleteKnowledge(id: ID!): Boolean!
+
+  # System Settings
+  updateSystemSetting(key: String!, value: String!, encrypted: Boolean): SystemSettingsPayload!
+  deleteSystemSetting(key: String!): Boolean!
 
   # Agent Actions
   agentThink(agentId: ID!, context: JSON!): AgentThought!
