@@ -135,7 +135,7 @@
 ### P0 (Must Have - Blocking Basic Usage):
 1. ✅ Auto-start scans after creation (COMPLETED)
 2. ✅ Start/Stop/Cancel buttons (COMPLETED)
-3. ⏳ Scan detail view (IN PROGRESS)
+3. ✅ Scan detail view (COMPLETED)
 4. ⏳ Finding detail view (PENDING)
 
 ### P1 (Should Have - Core Features):
