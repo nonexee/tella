@@ -61,8 +61,10 @@ export function validateEnvironment(): ValidationResult {
       errors.push('CORS_ORIGIN is required in production');
     } else if (process.env.CORS_ORIGIN.includes('*')) {
       errors.push('CORS_ORIGIN cannot contain wildcards (*) in production');
-    } else if (process.env.CORS_ORIGIN === 'http://localhost:5173,http://localhost:3000') {
-      warnings.push('CORS_ORIGIN still set to localhost in production!');
+    } else if (process.env.CORS_ORIGIN.includes('localhost:5173')) {
+      warnings.push('CORS_ORIGIN contains port 5173 (dev server) - should use port 4000 in production');
+    } else if (process.env.CORS_ORIGIN === 'http://localhost:4000' && !process.env.DISABLE_LOCALHOST_WARNING) {
+      warnings.push('CORS_ORIGIN set to localhost:4000 - OK for local deployment, update for public deployment');
     }
   }
 

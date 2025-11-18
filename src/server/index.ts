@@ -122,7 +122,21 @@ async function initializeServer() {
     // Helmet - Security headers
     app.use(
       helmet({
-        contentSecurityPolicy: IS_PRODUCTION ? undefined : false,
+        contentSecurityPolicy: IS_PRODUCTION
+          ? {
+              directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", "'unsafe-inline'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                imgSrc: ["'self'", 'data:', 'https:'],
+                connectSrc: ["'self'", 'ws:', 'wss:'],
+                fontSrc: ["'self'", 'data:'],
+                objectSrc: ["'none'"],
+                mediaSrc: ["'self'"],
+                frameSrc: ["'none'"]
+              }
+            }
+          : false,
         crossOriginEmbedderPolicy: false
       })
     );
@@ -255,6 +269,13 @@ async function initializeServer() {
     // Routes
     // ============================================
 
+    // Serve static frontend files in production
+    if (IS_PRODUCTION) {
+      const clientPath = join(__dirname, '..', 'client');
+      logger.info(`Serving static files from: ${clientPath}`);
+      app.use(express.static(clientPath));
+    }
+
     // GraphQL endpoint
     app.use(
       '/graphql',
@@ -297,24 +318,32 @@ async function initializeServer() {
       })
     );
 
-    // Health check endpoint
-    app.get('/health', (req, res) => {
-      res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        environment: NODE_ENV
+    // Catch-all route for client-side routing (SPA)
+    // This must come AFTER API routes but BEFORE 404 handler
+    if (IS_PRODUCTION) {
+      app.get('*', (req, res) => {
+        const indexPath = join(__dirname, '..', 'client', 'index.html');
+        res.sendFile(indexPath, (err) => {
+          if (err) {
+            logger.error('Failed to serve index.html:', err);
+            res.status(404).json({
+              error: 'Not Found',
+              message: `Cannot ${req.method} ${req.path}`,
+              availableEndpoints: ['/graphql', '/health']
+            });
+          }
+        });
       });
-    });
-
-    // 404 handler
-    app.use((req, res) => {
-      res.status(404).json({
-        error: 'Not Found',
-        message: `Cannot ${req.method} ${req.path}`,
-        availableEndpoints: ['/graphql', '/health']
+    } else {
+      // 404 handler for development
+      app.use((req, res) => {
+        res.status(404).json({
+          error: 'Not Found',
+          message: `Cannot ${req.method} ${req.path}`,
+          availableEndpoints: ['/graphql', '/health']
+        });
       });
-    });
+    }
 
     // Error handler
     app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

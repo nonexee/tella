@@ -89,13 +89,12 @@ services:
       PORT: 4000
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4000}
       MAX_CONCURRENT_AGENTS: ${MAX_CONCURRENT_AGENTS:-5}
       AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-300000}
       ENABLE_AGGRESSIVE_TESTING: ${ENABLE_AGGRESSIVE_TESTING:-false}
     ports:
-      - "4000:4000"
-      - "5173:5173"
+      - "4000:4000"  # Backend API + Frontend (SPA served by backend)
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
