@@ -5,7 +5,7 @@
 
   onMount(async () => {
     await fetchFindings();
-    const interval = setInterval(fetchFindings, 5000);
+    const interval = setInterval(fetchFindings, 10000);
     return () => clearInterval(interval);
   });
 

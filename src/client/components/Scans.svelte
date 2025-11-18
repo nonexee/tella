@@ -20,7 +20,7 @@
   onMount(async () => {
     await fetchScans();
     await fetchTargets();
-    const interval = setInterval(fetchScans, 5000);
+    const interval = setInterval(fetchScans, 15000);
     return () => clearInterval(interval);
   });
 
@@ -127,16 +127,22 @@
       });
 
       const result = await response.json();
+      console.log('Create scan response:', result);
+
       if (result.data?.createScan) {
         showNewScanModal = false;
         newScan = { name: '', targetId: '', config: { maxDepth: 3, timeout: 300000, aggressive: false } };
         await fetchScans();
       } else if (result.errors) {
-        alert('Error: ' + result.errors[0].message);
+        const error = result.errors[0];
+        console.error('GraphQL error:', error);
+        alert('Error creating scan: ' + error.message + (error.extensions ? '\n' + JSON.stringify(error.extensions) : ''));
+      } else {
+        alert('Unknown error creating scan');
       }
     } catch (err) {
       console.error('Failed to create scan:', err);
-      alert('Failed to create scan');
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to create scan'));
     }
   }
 

@@ -20,8 +20,8 @@
 
   onMount(async () => {
     await fetchDashboardStats();
-    // Set up real-time updates
-    const interval = setInterval(fetchDashboardStats, 5000);
+    // Set up real-time updates (poll every 10 seconds instead of 5)
+    const interval = setInterval(fetchDashboardStats, 10000);
     return () => clearInterval(interval);
   });
 

@@ -5,7 +5,7 @@
 
   onMount(async () => {
     await fetchScans();
-    const interval = setInterval(fetchScans, 5000);
+    const interval = setInterval(fetchScans, 10000);
     return () => clearInterval(interval);
   });
 
