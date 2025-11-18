@@ -83,7 +83,7 @@ if (IS_PRODUCTION) {
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: IS_PRODUCTION ? 100 : 1000, // Requests per window
+  max: IS_PRODUCTION ? 10000 : 100000, // Much higher limit for polling
   message: 'Too many requests from this IP, please try again later',
   standardHeaders: true,
   legacyHeaders: false

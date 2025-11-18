@@ -90,16 +90,22 @@
       });
 
       const result = await response.json();
+      console.log('Create target response:', result);
+
       if (result.data?.createTarget) {
         showNewTargetModal = false;
         newTarget = { name: '', url: '', type: 'WEB_APP', description: '' };
         await fetchTargets();
       } else if (result.errors) {
-        alert('Error: ' + result.errors[0].message);
+        const error = result.errors[0];
+        console.error('GraphQL error:', error);
+        alert('Error creating target: ' + error.message + (error.extensions ? '\n' + JSON.stringify(error.extensions) : ''));
+      } else {
+        alert('Unknown error creating target');
       }
     } catch (err) {
       console.error('Failed to create target:', err);
-      alert('Failed to create target');
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to create target'));
     }
   }
 

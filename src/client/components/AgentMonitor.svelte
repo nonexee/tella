@@ -5,7 +5,7 @@
 
   onMount(async () => {
     await fetchAgents();
-    const interval = setInterval(fetchAgents, 3000);
+    const interval = setInterval(fetchAgents, 10000);
     return () => clearInterval(interval);
   });
 
