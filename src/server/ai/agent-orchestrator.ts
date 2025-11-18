@@ -234,13 +234,18 @@ export class AgentOrchestrator extends EventEmitter {
                         !process.env.OPENAI_API_KEY.includes('your-openai');
 
     if (!hasValidKey) {
-      const error = new Error('Cannot start AI scan: OPENAI_API_KEY not configured. Set a valid API key in .env file.');
+      const errorMessage = 'Cannot start AI scan: OPENAI_API_KEY not configured. Set a valid API key in .env file.';
+      const error = new Error(errorMessage);
       logger.error('AI scan failed:', error);
 
-      // Update scan status to FAILED
+      // Update scan status to FAILED with error message
       await prisma.scan.update({
         where: { id: scanId },
-        data: { status: 'FAILED', completedAt: new Date() }
+        data: {
+          status: 'FAILED',
+          error: errorMessage,
+          completedAt: new Date()
+        }
       });
       throw error;
     }

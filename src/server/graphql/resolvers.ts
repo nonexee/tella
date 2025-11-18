@@ -900,8 +900,20 @@ export const resolvers = {
       });
 
       // Start orchestration in background
-      orchestrator.orchestrateScan(id).catch(err => {
+      orchestrator.orchestrateScan(id).catch(async (err) => {
         console.error('Orchestration error:', err);
+        // Error is already stored in database by orchestrator,
+        // but update here as well in case orchestrator didn't catch it
+        await prisma.scan.update({
+          where: { id },
+          data: {
+            status: 'FAILED',
+            error: err.message || 'Unknown orchestration error',
+            completedAt: new Date()
+          }
+        }).catch(updateErr => {
+          console.error('Failed to update scan error:', updateErr);
+        });
       });
 
       pubsub.publish('SCAN_UPDATED', { scanUpdated: scan });

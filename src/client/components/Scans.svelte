@@ -45,6 +45,7 @@
                 name
                 status
                 progress
+                error
                 createdAt
                 startedAt
                 completedAt
@@ -469,6 +470,16 @@
               {scan.status}
             </span>
           </div>
+
+          {#if scan.status === 'FAILED' && scan.error}
+            <div class="error-message">
+              <span class="error-icon">⚠️</span>
+              <div class="error-content">
+                <strong>Scan Failed:</strong>
+                <p>{scan.error}</p>
+              </div>
+            </div>
+          {/if}
 
           {#if scan.status === 'RUNNING'}
             <div class="progress-bar">
@@ -1157,5 +1168,40 @@
 
   .scan-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .error-message {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-left: 4px solid var(--danger);
+    border-radius: 0.5rem;
+  }
+
+  .error-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+
+  .error-content {
+    flex: 1;
+  }
+
+  .error-content strong {
+    display: block;
+    color: var(--danger);
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+  }
+
+  .error-content p {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-primary);
   }
 </style>
