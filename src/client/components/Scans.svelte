@@ -106,7 +106,9 @@
   async function createScan() {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/graphql', {
+
+      // Step 1: Create the scan
+      const createResponse = await fetch('/graphql', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -126,15 +128,45 @@
         })
       });
 
-      const result = await response.json();
-      console.log('Create scan response:', result);
+      const createResult = await createResponse.json();
+      console.log('Create scan response:', createResult);
 
-      if (result.data?.createScan) {
-        showNewScanModal = false;
-        newScan = { name: '', targetId: '', config: { maxDepth: 3, timeout: 300000, aggressive: false } };
-        await fetchScans();
-      } else if (result.errors) {
-        const error = result.errors[0];
+      if (createResult.data?.createScan) {
+        const scanId = createResult.data.createScan.id;
+
+        // Step 2: Immediately start the scan
+        const startResponse = await fetch('/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            query: `
+              mutation StartScan($id: ID!) {
+                startScan(id: $id) {
+                  id
+                  status
+                }
+              }
+            `,
+            variables: { id: scanId }
+          })
+        });
+
+        const startResult = await startResponse.json();
+        console.log('Start scan response:', startResult);
+
+        if (startResult.data?.startScan) {
+          showNewScanModal = false;
+          newScan = { name: '', targetId: '', config: { maxDepth: 3, timeout: 300000, aggressive: false } };
+          await fetchScans();
+        } else if (startResult.errors) {
+          console.error('Failed to start scan:', startResult.errors);
+          alert('Scan created but failed to start: ' + startResult.errors[0].message);
+        }
+      } else if (createResult.errors) {
+        const error = createResult.errors[0];
         console.error('GraphQL error:', error);
         alert('Error creating scan: ' + error.message + (error.extensions ? '\n' + JSON.stringify(error.extensions) : ''));
       } else {
