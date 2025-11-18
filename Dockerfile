@@ -36,7 +36,7 @@ LABEL security.scan="enabled"
 
 # Install security updates and runtime dependencies
 RUN apk --no-cache upgrade && \
-    apk add --no-cache dumb-init openssl
+    apk add --no-cache dumb-init openssl nmap nmap-scripts
 
 WORKDIR /app
 

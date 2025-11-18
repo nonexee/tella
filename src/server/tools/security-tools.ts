@@ -20,6 +20,7 @@ import dns from 'dns/promises';
 import pLimit from 'p-limit';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
+import { nmapWrapper } from './nmap-wrapper.js';
 
 const execAsync = promisify(exec);
 
@@ -97,9 +98,11 @@ export interface SubdomainEnumResult {
 export class SecurityTools {
   private readonly MAX_TIMEOUT = 30000; // 30 seconds
   private readonly USER_AGENT = 'TellaAI-SecurityTester/1.0';
+  private nmapAvailable: boolean | null = null;
 
   /**
    * Port scanning with multiple techniques
+   * Uses Nmap if available, falls back to custom TCP connect scan
    */
   async portScan(params: {
     target: string;
@@ -115,10 +118,44 @@ export class SecurityTools {
     const technique = validatedParams.technique || 'connect';
 
     try {
-      // For production, integrate with nmap or custom scanner
-      // This is a simplified implementation
+      // Check if Nmap is available (cache the result)
+      if (this.nmapAvailable === null) {
+        this.nmapAvailable = await nmapWrapper.isAvailable();
+        if (this.nmapAvailable) {
+          const version = await nmapWrapper.getVersion();
+          logger.info(`Nmap detected: version ${version}`);
+        } else {
+          logger.warn('Nmap not available, using fallback TCP connect scan');
+        }
+      }
+
+      // Use Nmap if available
+      if (this.nmapAvailable) {
+        logger.debug(`Using Nmap for port scan with technique: ${technique}`);
+
+        // Map technique to Nmap scan type
+        const scanType = technique === 'syn' ? 'syn' :
+                        technique === 'stealth' ? 'stealth' :
+                        'connect';
+
+        // Use quick scan for common ports, full range otherwise
+        if (ports === 'common') {
+          return await nmapWrapper.quickScan(validatedParams.target);
+        } else {
+          return await nmapWrapper.scan({
+            target: validatedParams.target,
+            ports,
+            scanType,
+            timeout: 120000 // 2 minutes
+          });
+        }
+      }
+
+      // Fallback to custom TCP connect scan
+      logger.debug('Using custom TCP connect scan (fallback)');
       const result = await this.tcpConnectScan(validatedParams.target, ports);
       return result;
+
     } catch (error: any) {
       logger.error('Port scan failed:', error);
 
