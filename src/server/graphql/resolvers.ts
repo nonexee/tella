@@ -605,6 +605,29 @@ export const resolvers = {
         completedTasks,
         recentActivity
       };
+    },
+
+    systemSettings: async (
+      _parent: unknown,
+      args: { key?: string },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      const where = args.key ? { key: args.key } : {};
+      return prisma.systemSettings.findMany({ where });
+    },
+
+    systemSetting: async (
+      _parent: unknown,
+      args: { key: string },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      return prisma.systemSettings.findUnique({
+        where: { key: args.key }
+      });
     }
   },
 
@@ -900,8 +923,20 @@ export const resolvers = {
       });
 
       // Start orchestration in background
-      orchestrator.orchestrateScan(id).catch(err => {
+      orchestrator.orchestrateScan(id).catch(async (err) => {
         console.error('Orchestration error:', err);
+        // Error is already stored in database by orchestrator,
+        // but update here as well in case orchestrator didn't catch it
+        await prisma.scan.update({
+          where: { id },
+          data: {
+            status: 'FAILED',
+            error: err.message || 'Unknown orchestration error',
+            completedAt: new Date()
+          }
+        }).catch(updateErr => {
+          console.error('Failed to update scan error:', updateErr);
+        });
       });
 
       pubsub.publish('SCAN_UPDATED', { scanUpdated: scan });
@@ -1284,6 +1319,55 @@ export const resolvers = {
       requirePermission(context, 'knowledge:delete');
 
       await prisma.knowledgeBase.delete({ where: { id } });
+      return true;
+    },
+
+    updateSystemSetting: async (
+      _parent: unknown,
+      { key, value, encrypted }: { key: string; value: string; encrypted?: boolean },
+      context: Context
+    ): Promise<{ success: boolean; message?: string }> => {
+      requirePermission(context, 'admin:settings');
+
+      try {
+        // For sensitive settings like API keys, we should encrypt them
+        // For now, we'll just mark them as encrypted but not actually encrypt
+        // In production, use crypto.encrypt() with a secret key
+
+        await prisma.systemSettings.upsert({
+          where: { key },
+          update: {
+            value,
+            encrypted: encrypted || false
+          },
+          create: {
+            key,
+            value,
+            encrypted: encrypted || false
+          }
+        });
+
+        return {
+          success: true,
+          message: `Setting '${key}' updated successfully`
+        };
+      } catch (error: any) {
+        logger.error('Failed to update system setting:', error);
+        return {
+          success: false,
+          message: error.message || 'Failed to update setting'
+        };
+      }
+    },
+
+    deleteSystemSetting: async (
+      _parent: unknown,
+      { key }: { key: string },
+      context: Context
+    ): Promise<boolean> => {
+      requirePermission(context, 'admin:settings');
+
+      await prisma.systemSettings.delete({ where: { key } });
       return true;
     },
 

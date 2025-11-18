@@ -85,6 +85,7 @@ model Scan {
   status      ScanStatus @default(QUEUED)
   progress    Float      @default(0)
   config      Json
+  error       String?    // Error message if scan fails
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime   @default(now())
@@ -343,4 +344,16 @@ model KnowledgeBase {
   @@unique([category, title], name: "category_title")
   @@index([category])
   @@index([tags])
+}
+
+// System configuration
+model SystemSettings {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  encrypted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
 }
