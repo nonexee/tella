@@ -3,8 +3,12 @@
 
   let scans: any[] = [];
   let showNewScanModal = false;
+  let showScanDetailModal = false;
+  let selectedScan: any = null;
+  let scanDetails: any = null;
   let targets: any[] = [];
   let loading = true;
+  let detailsLoading = false;
 
   // New scan form data
   let newScan = {
@@ -334,6 +338,96 @@
     };
     return colors[status] || 'secondary';
   }
+
+  async function openScanDetails(scan: any) {
+    selectedScan = scan;
+    showScanDetailModal = true;
+    detailsLoading = true;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            query ScanDetails($id: ID!) {
+              scan(id: $id) {
+                id
+                name
+                status
+                progress
+                createdAt
+                startedAt
+                completedAt
+                config
+                target {
+                  id
+                  name
+                  url
+                  type
+                }
+                tasks {
+                  id
+                  type
+                  status
+                  priority
+                  data
+                  result
+                  createdAt
+                  completedAt
+                }
+                agents {
+                  id
+                  name
+                  type
+                  status
+                  role
+                }
+                findings {
+                  id
+                  title
+                  severity
+                  category
+                  confidence
+                  status
+                  cvss
+                  cveId
+                  createdAt
+                }
+                stats {
+                  totalTasks
+                  completedTasks
+                  totalFindings
+                  criticalFindings
+                }
+              }
+            }
+          `,
+          variables: { id: scan.id }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.scan) {
+        scanDetails = result.data.scan;
+      }
+    } catch (err) {
+      console.error('Failed to fetch scan details:', err);
+      alert('Failed to load scan details');
+    } finally {
+      detailsLoading = false;
+    }
+  }
+
+  function closeScanDetails() {
+    showScanDetailModal = false;
+    selectedScan = null;
+    scanDetails = null;
+  }
 </script>
 
 <div class="scans-page">
@@ -365,7 +459,7 @@
   {:else}
     <div class="scans-grid">
       {#each scans as scan (scan.id)}
-        <div class="scan-card fade-in">
+        <div class="scan-card fade-in" on:click={() => openScanDetails(scan)}>
           <div class="scan-header">
             <div>
               <h3>{scan.name}</h3>
@@ -398,7 +492,7 @@
             </div>
           </div>
 
-          <div class="scan-actions">
+          <div class="scan-actions" on:click|stopPropagation>
             {#if scan.status === 'QUEUED'}
               <button class="btn btn-sm btn-primary" on:click={() => startScan(scan.id)}>
                 Start Scan
@@ -493,6 +587,149 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+{/if}
+
+{#if showScanDetailModal}
+  <div class="modal-overlay" on:click={closeScanDetails}>
+    <div class="modal modal-large" on:click|stopPropagation>
+      <div class="modal-header">
+        <h2>{selectedScan?.name || 'Scan Details'}</h2>
+        <button class="close-btn" on:click={closeScanDetails}>×</button>
+      </div>
+
+      {#if detailsLoading}
+        <div class="loading">
+          <div class="spinner spin"></div>
+          <p>Loading scan details...</p>
+        </div>
+      {:else if scanDetails}
+        <div class="scan-detail-content">
+          <!-- Overview Section -->
+          <div class="detail-section">
+            <h3>Overview</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">Status</span>
+                <span class="badge badge-{getStatusColor(scanDetails.status)}">{scanDetails.status}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Progress</span>
+                <span>{Math.round(scanDetails.progress)}%</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Target</span>
+                <span>{scanDetails.target.name}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">URL</span>
+                <span class="monospace">{scanDetails.target.url}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Created</span>
+                <span>{formatDate(scanDetails.createdAt)}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Started</span>
+                <span>{formatDate(scanDetails.startedAt)}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats Section -->
+          <div class="detail-section">
+            <h3>Statistics</h3>
+            <div class="stats-row">
+              <div class="stat-box">
+                <div class="stat-value-large">{scanDetails.stats.completedTasks}/{scanDetails.stats.totalTasks}</div>
+                <div class="stat-label">Tasks</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value-large">{scanDetails.stats.totalFindings}</div>
+                <div class="stat-label">Total Findings</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value-large critical">{scanDetails.stats.criticalFindings}</div>
+                <div class="stat-label">Critical</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agents Section -->
+          {#if scanDetails.agents && scanDetails.agents.length > 0}
+            <div class="detail-section">
+              <h3>Active Agents ({scanDetails.agents.length})</h3>
+              <div class="agents-list">
+                {#each scanDetails.agents as agent}
+                  <div class="agent-item">
+                    <span class="agent-type">{agent.type}</span>
+                    <span class="agent-role">{agent.role}</span>
+                    <span class="badge badge-{getStatusColor(agent.status)}">{agent.status}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Tasks Section -->
+          {#if scanDetails.tasks && scanDetails.tasks.length > 0}
+            <div class="detail-section">
+              <h3>Tasks ({scanDetails.tasks.length})</h3>
+              <div class="tasks-list">
+                {#each scanDetails.tasks.slice(0, 10) as task}
+                  <div class="task-item">
+                    <div class="task-info">
+                      <span class="task-type">{task.type}</span>
+                      <span class="task-priority">Priority: {task.priority}</span>
+                    </div>
+                    <span class="badge badge-{getStatusColor(task.status)}">{task.status}</span>
+                  </div>
+                {/each}
+                {#if scanDetails.tasks.length > 10}
+                  <p class="more-info">And {scanDetails.tasks.length - 10} more tasks...</p>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Findings Section -->
+          {#if scanDetails.findings && scanDetails.findings.length > 0}
+            <div class="detail-section">
+              <h3>Findings ({scanDetails.findings.length})</h3>
+              <div class="findings-list">
+                {#each scanDetails.findings.slice(0, 10) as finding}
+                  <div class="finding-item-detail">
+                    <div class="finding-header-detail">
+                      <span class="badge badge-{finding.severity.toLowerCase()}">{finding.severity}</span>
+                      <span class="finding-title-detail">{finding.title}</span>
+                    </div>
+                    <div class="finding-meta-detail">
+                      <span>{finding.category}</span>
+                      {#if finding.cveId}
+                        <span class="cve-badge">{finding.cveId}</span>
+                      {/if}
+                      <span>Confidence: {Math.round(finding.confidence * 100)}%</span>
+                    </div>
+                  </div>
+                {/each}
+                {#if scanDetails.findings.length > 10}
+                  <p class="more-info">And {scanDetails.findings.length - 10} more findings...</p>
+                {/if}
+              </div>
+            </div>
+          {:else}
+            <div class="detail-section">
+              <h3>Findings</h3>
+              <p class="empty-text">No findings yet</p>
+            </div>
+          {/if}
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" on:click={closeScanDetails}>Close</button>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -763,5 +1000,162 @@
     border-top-color: var(--primary);
     border-radius: 50%;
     margin-bottom: 1rem;
+  }
+
+  /* Scan Detail Modal Styles */
+  .modal-large {
+    max-width: 900px;
+  }
+
+  .scan-detail-content {
+    padding: 1.5rem;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .detail-section {
+    margin-bottom: 2rem;
+  }
+
+  .detail-section h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .detail-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .monospace {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+  }
+
+  .stat-box {
+    background: var(--bg-dark);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+
+  .stat-value-large {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-value-large.critical {
+    color: var(--critical);
+  }
+
+  .agents-list, .tasks-list, .findings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .agent-item, .task-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+
+  .agent-type, .task-type {
+    font-weight: 600;
+    margin-right: 1rem;
+  }
+
+  .agent-role, .task-priority {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .task-info {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .finding-item-detail {
+    padding: 1rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+
+  .finding-header-detail {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .finding-title-detail {
+    font-weight: 600;
+  }
+
+  .finding-meta-detail {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .cve-badge {
+    background: var(--bg-card);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+  }
+
+  .more-info {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+  }
+
+  .empty-text {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 2rem;
+  }
+
+  .scan-card {
+    cursor: pointer;
+  }
+
+  .scan-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
 </style>
