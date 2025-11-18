@@ -275,8 +275,11 @@ export const resolvers = {
 
       return prisma.target.findMany({
         take: limit,
-        skip: offset
-      });
+        skip: offset,
+        include: {
+          scans: true
+        }
+      }) as any;
     },
 
     target: async (
@@ -286,7 +289,12 @@ export const resolvers = {
     ): Promise<Target | null> => {
       requirePermission(context, 'target:read');
 
-      return prisma.target.findUnique({ where: { id } });
+      return prisma.target.findUnique({
+        where: { id },
+        include: {
+          scans: true
+        }
+      }) as any;
     },
 
     scans: async (
