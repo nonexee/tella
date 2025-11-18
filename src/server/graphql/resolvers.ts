@@ -31,6 +31,8 @@ import {
 import { AgentOrchestrator } from '../ai/agent-orchestrator.js';
 import { PubSub } from 'graphql-subscriptions';
 import { prisma } from '../utils/prisma.js';
+import { addScanJob } from '../queue/scan-queue.js';
+import { logger } from '../utils/logger.js';
 
 const pubsub = new PubSub();
 const orchestrator = new AgentOrchestrator();
@@ -901,10 +903,33 @@ export const resolvers = {
     ): Promise<Scan> => {
       requirePermission(context, 'scan:update');
 
-      const scan = await prisma.scan.update({
+      // Get scan with target info
+      const scan = await prisma.scan.findUnique({
+        where: { id },
+        include: {
+          target: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true,
+              createdAt: true,
+              updatedAt: true
+            }
+          }
+        }
+      });
+
+      if (!scan) {
+        throw new GraphQLError('Scan not found');
+      }
+
+      // Update scan status to QUEUED (will be RUNNING when worker picks it up)
+      const updatedScan = await prisma.scan.update({
         where: { id },
         data: {
-          status: 'RUNNING',
+          status: 'QUEUED',
           startedAt: new Date()
         },
         include: {
@@ -922,26 +947,35 @@ export const resolvers = {
         }
       });
 
-      // Start orchestration in background
-      orchestrator.orchestrateScan(id).catch(async (err) => {
-        console.error('Orchestration error:', err);
-        // Error is already stored in database by orchestrator,
-        // but update here as well in case orchestrator didn't catch it
+      // Add scan job to BullMQ queue
+      try {
+        await addScanJob({
+          scanId: scan.id,
+          userId: scan.userId,
+          targetId: scan.targetId,
+          config: scan.config as any
+        });
+
+        logger.info(`Scan ${id} queued for processing`);
+      } catch (error: any) {
+        logger.error(`Failed to queue scan ${id}:`, error);
+
+        // If queueing fails, mark scan as FAILED
         await prisma.scan.update({
           where: { id },
           data: {
             status: 'FAILED',
-            error: err.message || 'Unknown orchestration error',
+            error: `Failed to queue scan: ${error.message}`,
             completedAt: new Date()
           }
-        }).catch(updateErr => {
-          console.error('Failed to update scan error:', updateErr);
         });
-      });
 
-      pubsub.publish('SCAN_UPDATED', { scanUpdated: scan });
+        throw new GraphQLError('Failed to queue scan for processing');
+      }
 
-      return scan;
+      pubsub.publish('SCAN_UPDATED', { scanUpdated: updatedScan });
+
+      return updatedScan;
     },
 
     pauseScan: async (
