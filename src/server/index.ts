@@ -53,10 +53,17 @@ const IS_PRODUCTION = NODE_ENV === 'production';
 
 // CORS configuration with wildcard protection
 const CORS_ORIGINS = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',')
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
   : IS_PRODUCTION
   ? [] // No origins in prod without explicit config
   : ['http://localhost:5173', 'http://localhost:3000'];
+
+// Always allow same-origin requests (when frontend is served from same port)
+const SERVER_ORIGIN = `http://localhost:${PORT}`;
+if (IS_PRODUCTION && !CORS_ORIGINS.includes(SERVER_ORIGIN)) {
+  CORS_ORIGINS.push(SERVER_ORIGIN);
+  logger.info(`Added same-origin ${SERVER_ORIGIN} to CORS whitelist`);
+}
 
 // CRITICAL SECURITY: Prevent wildcard CORS in production
 if (IS_PRODUCTION) {
@@ -127,10 +134,10 @@ async function initializeServer() {
               directives: {
                 defaultSrc: ["'self'"],
                 scriptSrc: ["'self'", "'unsafe-inline'"],
-                styleSrc: ["'self'", "'unsafe-inline'"],
+                styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
                 imgSrc: ["'self'", 'data:', 'https:'],
                 connectSrc: ["'self'", 'ws:', 'wss:'],
-                fontSrc: ["'self'", 'data:'],
+                fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
                 objectSrc: ["'none'"],
                 mediaSrc: ["'self'"],
                 frameSrc: ["'none'"]
