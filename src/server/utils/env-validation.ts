@@ -28,11 +28,12 @@ export function validateEnvironment(): ValidationResult {
     errors.push('DATABASE_URL must be a PostgreSQL connection string');
   }
 
-  // CRITICAL: OpenAI API Key
+  // OPTIONAL: OpenAI API Key (required for AI features, but system can run without it)
   if (!process.env.OPENAI_API_KEY) {
-    errors.push('OPENAI_API_KEY is required');
-  } else if (process.env.OPENAI_API_KEY === 'your-openai-api-key-here') {
-    errors.push('OPENAI_API_KEY must be set to a real API key (not the example value)');
+    warnings.push('OPENAI_API_KEY not set - AI agent features will be disabled');
+  } else if (process.env.OPENAI_API_KEY === 'your-openai-api-key-here' ||
+             process.env.OPENAI_API_KEY.includes('placeholder')) {
+    warnings.push('OPENAI_API_KEY is placeholder - AI agent features will be disabled');
   } else if (!process.env.OPENAI_API_KEY.startsWith('sk-')) {
     warnings.push('OPENAI_API_KEY does not match expected format (sk-...)');
   }
