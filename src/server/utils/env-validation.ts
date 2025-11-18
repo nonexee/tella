@@ -41,7 +41,8 @@ export function validateEnvironment(): ValidationResult {
   // CRITICAL: JWT Secret
   const JWT_EXAMPLE_VALUES = [
     'your-super-secret-jwt-key-at-least-32-characters-long',
-    'CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARACTERS_LONG_FOR_PRODUCTION'
+    'CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARACTERS_LONG_FOR_PRODUCTION',
+    'CHANGE_THIS_TO_A_SECURE_64_CHARACTER_HEX_STRING_FOR_PRODUCTION_USE'
   ];
 
   if (!process.env.JWT_SECRET) {
