@@ -18,10 +18,11 @@ if [ -f .env ]; then
     echo "✓ Backed up existing .env file"
 fi
 
-# Generate secure random values
+# Generate secure random values (URL-safe for database connection strings)
 echo "Generating secure secrets..."
-JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
-POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')
+# Use hex instead of base64 to avoid special characters that need URL encoding (+, /, =)
+JWT_SECRET=$(openssl rand -hex 32)
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
 
 # Create .env file
 cat > .env << EOF
