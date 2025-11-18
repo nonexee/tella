@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import StatsCard from './StatsCard.svelte';
   import AgentMonitor from './AgentMonitor.svelte';
   import RecentFindings from './RecentFindings.svelte';
   import ActiveScans from './ActiveScans.svelte';
+
+  const dispatch = createEventDispatcher();
 
   let stats = {
     totalScans: 0,
@@ -66,7 +68,7 @@
       <h1>Security Testing Dashboard</h1>
       <p>Real-time AI-powered offensive security testing</p>
     </div>
-    <button class="btn btn-primary">
+    <button class="btn btn-primary" on:click={() => dispatch('navigate', 'scans')}>
       <span>⚡</span>
       New Scan
     </button>
