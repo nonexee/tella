@@ -382,8 +382,18 @@ type Query {
   systemSettings(key: String): [SystemSettings!]!
   systemSetting(key: String!): SystemSettings
 
+  # Reports & Export
+  exportScanReport(scanId: ID!, format: ReportFormat): JSON!
+  exportFindingsReport(scanId: ID, severity: Severity, format: ReportFormat): JSON!
+
   # Analytics
   dashboardStats: DashboardStats!
+}
+
+enum ReportFormat {
+  JSON
+  CSV
+  PDF
 }
 
 type DashboardStats {

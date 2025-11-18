@@ -630,6 +630,185 @@ export const resolvers = {
       return prisma.systemSettings.findUnique({
         where: { key: args.key }
       });
+    },
+
+    exportScanReport: async (
+      _parent: unknown,
+      args: { scanId: string; format?: string },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      const scan = await prisma.scan.findUnique({
+        where: { id: args.scanId },
+        include: {
+          target: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true
+            }
+          },
+          agents: {
+            include: {
+              tasks: true
+            }
+          },
+          findings: {
+            orderBy: {
+              severity: 'asc' // CRITICAL first
+            }
+          },
+          tasks: true
+        }
+      });
+
+      if (!scan) {
+        throw new GraphQLError('Scan not found');
+      }
+
+      // Generate report
+      const report = {
+        metadata: {
+          reportGenerated: new Date().toISOString(),
+          scanId: scan.id,
+          scanName: scan.name,
+          scanStatus: scan.status,
+          scanCreated: scan.createdAt,
+          scanStarted: scan.startedAt,
+          scanCompleted: scan.completedAt,
+          duration: scan.startedAt && scan.completedAt
+            ? (new Date(scan.completedAt).getTime() - new Date(scan.startedAt).getTime()) / 1000
+            : null,
+          durationSeconds: scan.startedAt && scan.completedAt
+            ? Math.round((new Date(scan.completedAt).getTime() - new Date(scan.startedAt).getTime()) / 1000)
+            : null
+        },
+        target: {
+          id: scan.target.id,
+          name: scan.target.name,
+          url: scan.target.url,
+          type: scan.target.type,
+          description: scan.target.description
+        },
+        summary: {
+          totalFindings: scan.findings.length,
+          criticalFindings: scan.findings.filter((f: any) => f.severity === 'CRITICAL').length,
+          highFindings: scan.findings.filter((f: any) => f.severity === 'HIGH').length,
+          mediumFindings: scan.findings.filter((f: any) => f.severity === 'MEDIUM').length,
+          lowFindings: scan.findings.filter((f: any) => f.severity === 'LOW').length,
+          infoFindings: scan.findings.filter((f: any) => f.severity === 'INFO').length,
+          totalAgents: scan.agents.length,
+          totalTasks: scan.tasks.length,
+          completedTasks: scan.tasks.filter((t: any) => t.status === 'COMPLETED').length,
+          failedTasks: scan.tasks.filter((t: any) => t.status === 'FAILED').length
+        },
+        findings: scan.findings.map((finding: any) => ({
+          id: finding.id,
+          title: finding.title,
+          description: finding.description,
+          severity: finding.severity,
+          status: finding.status,
+          category: finding.category,
+          cvssScore: finding.cvssScore,
+          cveId: finding.cveId,
+          affectedComponent: finding.affectedComponent,
+          remediation: finding.remediation,
+          references: finding.references,
+          evidence: finding.evidence,
+          createdAt: finding.createdAt
+        })),
+        agents: scan.agents.map((agent: any) => ({
+          id: agent.id,
+          name: agent.name,
+          type: agent.type,
+          role: agent.role,
+          status: agent.status,
+          tasksCompleted: agent.tasks.filter((t: any) => t.status === 'COMPLETED').length,
+          tasksFailed: agent.tasks.filter((t: any) => t.status === 'FAILED').length
+        })),
+        config: scan.config,
+        error: scan.error
+      };
+
+      return report;
+    },
+
+    exportFindingsReport: async (
+      _parent: unknown,
+      args: { scanId?: string; severity?: string; format?: string },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      const where: any = {};
+      if (args.scanId) {
+        where.scanId = args.scanId;
+      }
+      if (args.severity) {
+        where.severity = args.severity;
+      }
+
+      const findings = await prisma.finding.findMany({
+        where,
+        include: {
+          scan: {
+            include: {
+              target: true
+            }
+          }
+        },
+        orderBy: {
+          severity: 'asc' // CRITICAL first
+        }
+      });
+
+      const report = {
+        metadata: {
+          reportGenerated: new Date().toISOString(),
+          totalFindings: findings.length,
+          filters: {
+            scanId: args.scanId || null,
+            severity: args.severity || null
+          }
+        },
+        summary: {
+          critical: findings.filter((f: any) => f.severity === 'CRITICAL').length,
+          high: findings.filter((f: any) => f.severity === 'HIGH').length,
+          medium: findings.filter((f: any) => f.severity === 'MEDIUM').length,
+          low: findings.filter((f: any) => f.severity === 'LOW').length,
+          info: findings.filter((f: any) => f.severity === 'INFO').length,
+          confirmed: findings.filter((f: any) => f.status === 'CONFIRMED').length,
+          falsePositive: findings.filter((f: any) => f.status === 'FALSE_POSITIVE').length,
+          fixed: findings.filter((f: any) => f.status === 'FIXED').length
+        },
+        findings: findings.map((finding: any) => ({
+          id: finding.id,
+          title: finding.title,
+          description: finding.description,
+          severity: finding.severity,
+          status: finding.status,
+          category: finding.category,
+          cvssScore: finding.cvssScore,
+          cveId: finding.cveId,
+          affectedComponent: finding.affectedComponent,
+          remediation: finding.remediation,
+          references: finding.references,
+          evidence: finding.evidence,
+          scan: {
+            id: finding.scan.id,
+            name: finding.scan.name,
+            target: {
+              name: finding.scan.target.name,
+              url: finding.scan.target.url
+            }
+          },
+          createdAt: finding.createdAt
+        }))
+      };
+
+      return report;
     }
   },
 
