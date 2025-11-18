@@ -34,9 +34,9 @@ LABEL org.opencontainers.image.description="Agentic AI for Offensive Security Te
 LABEL org.opencontainers.image.vendor="Tella AI"
 LABEL security.scan="enabled"
 
-# Install security updates and OpenSSL 1.1 compatibility for Prisma
+# Install security updates and runtime dependencies
 RUN apk --no-cache upgrade && \
-    apk add --no-cache dumb-init openssl1.1-compat
+    apk add --no-cache dumb-init openssl
 
 WORKDIR /app
 
