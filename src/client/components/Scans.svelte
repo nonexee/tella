@@ -178,6 +178,146 @@
     }
   }
 
+  async function startScan(scanId: string) {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation StartScan($id: ID!) {
+              startScan(id: $id) {
+                id
+                status
+              }
+            }
+          `,
+          variables: { id: scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.startScan) {
+        await fetchScans();
+      } else if (result.errors) {
+        alert('Failed to start scan: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to start scan:', err);
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to start scan'));
+    }
+  }
+
+  async function pauseScan(scanId: string) {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation PauseScan($id: ID!) {
+              pauseScan(id: $id) {
+                id
+                status
+              }
+            }
+          `,
+          variables: { id: scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.pauseScan) {
+        await fetchScans();
+      } else if (result.errors) {
+        alert('Failed to pause scan: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to pause scan:', err);
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to pause scan'));
+    }
+  }
+
+  async function resumeScan(scanId: string) {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation ResumeScan($id: ID!) {
+              resumeScan(id: $id) {
+                id
+                status
+              }
+            }
+          `,
+          variables: { id: scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.resumeScan) {
+        await fetchScans();
+      } else if (result.errors) {
+        alert('Failed to resume scan: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to resume scan:', err);
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to resume scan'));
+    }
+  }
+
+  async function stopScan(scanId: string) {
+    if (!confirm('Are you sure you want to stop this scan? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation StopScan($id: ID!) {
+              stopScan(id: $id) {
+                id
+                status
+              }
+            }
+          `,
+          variables: { id: scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.stopScan) {
+        await fetchScans();
+      } else if (result.errors) {
+        alert('Failed to stop scan: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to stop scan:', err);
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to stop scan'));
+    }
+  }
+
   function formatDate(dateString: string | null): string {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleString();
@@ -256,6 +396,28 @@
               <span class="stat-label">Critical</span>
               <span class="stat-value critical">{scan.stats.criticalFindings}</span>
             </div>
+          </div>
+
+          <div class="scan-actions">
+            {#if scan.status === 'QUEUED'}
+              <button class="btn btn-sm btn-primary" on:click={() => startScan(scan.id)}>
+                Start Scan
+              </button>
+            {:else if scan.status === 'RUNNING'}
+              <button class="btn btn-sm btn-warning" on:click={() => pauseScan(scan.id)}>
+                Pause
+              </button>
+              <button class="btn btn-sm btn-danger" on:click={() => stopScan(scan.id)}>
+                Stop
+              </button>
+            {:else if scan.status === 'PAUSED'}
+              <button class="btn btn-sm btn-primary" on:click={() => resumeScan(scan.id)}>
+                Resume
+              </button>
+              <button class="btn btn-sm btn-danger" on:click={() => stopScan(scan.id)}>
+                Stop
+              </button>
+            {/if}
           </div>
 
           <div class="scan-footer">
@@ -445,6 +607,19 @@
 
   .stat-value.critical {
     color: var(--critical);
+  }
+
+  .scan-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    padding: 1rem 0;
+  }
+
+  .scan-actions .btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 0.375rem;
   }
 
   .scan-footer {
