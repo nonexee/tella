@@ -10,8 +10,8 @@ COPY package*.json ./
 COPY tsconfig.json ./
 COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install ALL dependencies (including devDependencies for building)
+RUN npm ci && npm cache clean --force
 
 # Copy source code
 COPY src ./src
@@ -46,11 +46,15 @@ RUN addgroup -g 1001 -S nodejs && \
     mkdir -p logs tmp && \
     chown -R nodejs:nodejs /app
 
-# Copy built files and dependencies
-COPY --from=base --chown=nodejs:nodejs /app/node_modules ./node_modules
+# Copy package files for production install
+COPY package*.json ./
+COPY prisma ./prisma
+
+# Install ONLY production dependencies in final image
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy built files from build stage
 COPY --from=base --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=base --chown=nodejs:nodejs /app/package.json ./
-COPY --from=base --chown=nodejs:nodejs /app/prisma ./prisma
 
 # Drop capabilities and security hardening
 USER nodejs
