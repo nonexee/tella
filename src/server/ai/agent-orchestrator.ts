@@ -324,9 +324,9 @@ export class AgentOrchestrator extends EventEmitter {
         })
       ]);
 
-      // NOTE: Agents are created but not started with polling loops
-      // Task execution is now handled by BullMQ workers, not AgentRunner polling
-      // Update all agents to IDLE status (ready to execute tasks via BullMQ)
+      // NOTE: Agents are created in IDLE status (ready to execute tasks)
+      // Task execution is handled by BullMQ workers which call AgentRunner.executeTaskWithAI()
+      // This provides REAL AI reasoning with OpenAI, not direct tool calls
       await Promise.all(agents.map(agent =>
         prisma.agent.update({
           where: { id: agent.id },
@@ -334,9 +334,12 @@ export class AgentOrchestrator extends EventEmitter {
         })
       ));
 
-      // Create comprehensive initial task set
-      // Since we're using BullMQ workers instead of AgentRunner polling,
-      // we need to create all tasks upfront instead of having AI dynamically create them
+      // Create initial task set for the scan
+      // Each task will be executed by AI which will:
+      // 1. Analyze the task requirements
+      // 2. Decide which tools to use
+      // 3. Iterate and adjust based on results
+      // 4. Log real thoughts and decisions to audit trail
 
       const reconAgent = agents.find(a => a.type === AgentType.RECON);
       const scannerAgent = agents.find(a => a.type === AgentType.SCANNER);
@@ -346,18 +349,8 @@ export class AgentOrchestrator extends EventEmitter {
       const urlObj = new URL(target.url);
       const domain = urlObj.hostname;
 
-      // Log task planning strategy
-      await auditAgent.reasoning(
-        scanId,
-        reconAgent?.id || 'system',
-        `📋 Planning reconnaissance phase for ${domain}`,
-        {
-          phase: 'reconnaissance',
-          target: domain,
-          tasksPanned: ['port_scan', 'subdomain_enumeration'],
-          reasoning: 'Starting with network reconnaissance to map attack surface before vulnerability scanning'
-        }
-      );
+      // Tasks created below - AI will do the actual reasoning when executing them
+      // No more fake hardcoded "planning" messages!
 
       if (reconAgent) {
         // Task 1: Port Scan
@@ -388,19 +381,7 @@ export class AgentOrchestrator extends EventEmitter {
         });
       }
 
-      // Log vulnerability scanning strategy
-      await auditAgent.reasoning(
-        scanId,
-        scannerAgent?.id || 'system',
-        `🔍 Planning vulnerability scanning phase`,
-        {
-          phase: 'vulnerability_scanning',
-          target: target.url,
-          scanTypes: ['xss', 'sqli', 'csrf', 'ssrf'],
-          reasoning: 'Executing comprehensive web application security scan targeting OWASP Top 10 vulnerabilities'
-        }
-      );
-
+      // Vulnerability scanning tasks - AI will determine the approach when executing
       if (scannerAgent) {
         // Task 3: Web Application Scan
         await this.createTask({
@@ -607,8 +588,9 @@ export class AgentOrchestrator extends EventEmitter {
 /**
  * Agent Runner - Executes individual agent's logic
  * FIXED: Proper error handling, memory management, shutdown handling
+ * EXPORTED: Now accessible for BullMQ workers to use AI reasoning
  */
-class AgentRunner {
+export class AgentRunner {
   private agent: Agent;
   private openai: OpenAI;
   private prisma: PrismaClient;
@@ -642,6 +624,60 @@ class AgentRunner {
     };
 
     this.systemPrompt = this.buildSystemPrompt();
+  }
+
+  /**
+   * Execute a task with AI reasoning (callable from BullMQ workers)
+   * This is the REAL AI reasoning loop that should be used for task execution
+   */
+  static async executeTaskWithAI(taskId: string): Promise<any> {
+    // Load task from database
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { agent: true, scan: true }
+    });
+
+    if (!task || !task.agent) {
+      throw new Error(`Task ${taskId} or associated agent not found`);
+    }
+
+    // Check if OpenAI API key is configured
+    const hasValidKey = process.env.OPENAI_API_KEY &&
+                        !process.env.OPENAI_API_KEY.includes('placeholder') &&
+                        !process.env.OPENAI_API_KEY.includes('your-openai');
+
+    if (!hasValidKey) {
+      throw new Error('Cannot execute AI task: OPENAI_API_KEY not configured');
+    }
+
+    // Create OpenAI client and tools
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      maxRetries: 3,
+      timeout: 60000
+    });
+    const securityTools = new SecurityTools();
+    const openaiLimiter = pLimit(OPENAI_RATE_LIMIT);
+
+    // Create temporary agent runner for this task
+    const runner = new AgentRunner(
+      task.agent,
+      openai,
+      prisma,
+      securityTools,
+      openaiLimiter,
+      () => false // Not shutting down
+    );
+
+    // Execute the task with AI reasoning
+    await runner.executeTask(task);
+
+    // Return the updated task
+    const updatedTask = await prisma.task.findUnique({
+      where: { id: taskId }
+    });
+
+    return updatedTask?.output || {};
   }
 
   /**
@@ -762,8 +798,8 @@ As a reporter:
   }
 
   /**
-   * Execute a task using GPT-5
-   * FIXED: Timeout handling, abort controller, proper error handling
+   * Execute a task using AI reasoning with OpenAI
+   * FIXED: Timeout handling, abort controller, proper error handling, real-time audit logging
    */
   private async executeTask(task: Task): Promise<void> {
     logger.info(`Agent ${this.agent.id} executing task ${task.id}: ${task.description}`);
@@ -813,8 +849,38 @@ As a reporter:
 
       const assistantMessage = response.choices[0].message;
 
+      // Log AI reasoning to audit trail (REAL AI thoughts, not fake hardcoded messages)
+      if (assistantMessage.content && this.agent.scanId) {
+        await auditAgent.reasoning(
+          this.agent.scanId,
+          this.agent.id,
+          `💭 AI Reasoning: ${task.description}`,
+          {
+            thought: assistantMessage.content,
+            taskType: task.type,
+            taskId: task.id
+          }
+        );
+      }
+
       // Handle tool calls
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        // Log which tools the AI decided to use
+        if (this.agent.scanId) {
+          await auditAgent.decision(
+            this.agent.scanId,
+            this.agent.id,
+            `🛠️ Tool Selection`,
+            `AI decided to use: ${assistantMessage.tool_calls.map(tc => tc.function.name).join(', ')}`,
+            {
+              tools: assistantMessage.tool_calls.map(tc => ({
+                name: tc.function.name,
+                arguments: JSON.parse(tc.function.arguments)
+              }))
+            }
+          );
+        }
+
         const toolResults = await this.executeToolCalls(assistantMessage.tool_calls);
 
         // Store in memory (with size limit)
