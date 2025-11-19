@@ -188,7 +188,13 @@
   {:else}
     <div class="findings-list">
       {#each filteredFindings as finding (finding.id)}
-        <div class="finding-card fade-in" on:click={() => openFindingDetails(finding)}>
+        <div
+          class="finding-card fade-in"
+          role="button"
+          tabindex="0"
+          on:click={() => openFindingDetails(finding)}
+          on:keydown={(e) => e.key === 'Enter' && openFindingDetails(finding)}
+        >
           <div class="finding-header">
             <span class="badge badge-{getSeverityColor(finding.severity)}">
               {finding.severity}
@@ -222,8 +228,17 @@
 </div>
 
 {#if showFindingDetailModal}
-  <div class="modal-overlay" on:click={closeFindingDetails}>
-    <div class="modal modal-large" on:click|stopPropagation>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && closeFindingDetails()}
+    on:keydown={(e) => e.key === 'Escape' && closeFindingDetails()}
+  >
+    <div
+      class="modal modal-large"
+      role="dialog"
+      aria-modal="true"
+    >
       <div class="modal-header">
         <h2>Finding Details</h2>
         <button class="close-btn" on:click={closeFindingDetails}>×</button>

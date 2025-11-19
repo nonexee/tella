@@ -125,7 +125,6 @@
   .tool-info { flex: 1; }
   .tool-info h3 { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.25rem; }
   .tool-description { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
-  .tool-version { font-size: 0.75rem; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
   .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); max-width: 900px; margin: 0 auto; }
   .empty-icon { font-size: 4rem; display: block; margin-bottom: 1rem; }
   .empty-state h2 { font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary); }
