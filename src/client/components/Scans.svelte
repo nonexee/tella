@@ -376,8 +376,8 @@
                   type
                   status
                   priority
-                  data
-                  result
+                  input
+                  output
                   createdAt
                   completedAt
                 }
@@ -396,7 +396,7 @@
                   confidence
                   status
                   cvss
-                  cveId
+                  cve
                   createdAt
                 }
                 stats {
@@ -762,8 +762,8 @@
                     </div>
                     <div class="finding-meta-detail">
                       <span>{finding.category}</span>
-                      {#if finding.cveId}
-                        <span class="cve-badge">{finding.cveId}</span>
+                      {#if finding.cve}
+                        <span class="cve-badge">{finding.cve}</span>
                       {/if}
                       <span>Confidence: {Math.round(finding.confidence * 100)}%</span>
                     </div>
