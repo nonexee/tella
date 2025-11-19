@@ -20,7 +20,7 @@ import { Agent, AgentType, AgentStatus, Task, TaskStatus, PrismaClient } from '@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
-import { auditAgent, auditTask } from '../utils/audit-logger.js';
+import { auditAgent, auditTask, auditTool } from '../utils/audit-logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
 import { sanitizeError } from '../utils/security.js';
