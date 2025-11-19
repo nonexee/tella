@@ -20,7 +20,7 @@ import { Agent, AgentType, AgentStatus, Task, TaskStatus, PrismaClient } from '@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
-import { auditAgent, auditTask, auditTool } from '../utils/audit-logger.js';
+import { auditAgent, auditTask, auditTool, logAudit } from '../utils/audit-logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
 import { sanitizeError } from '../utils/security.js';
@@ -268,32 +268,35 @@ export class AgentOrchestrator extends EventEmitter {
 
     logger.info(`Starting orchestration for scan: ${scanId}`);
 
-    // Log orchestration planning
-    await auditAgent.reasoning(
+    // Log orchestration planning (system-level logs, no agentId)
+    await logAudit({
       scanId,
-      'system',
-      `🎯 Planning security scan for target: ${scan.target.name} (${scan.target.url})`,
-      {
+      eventType: 'SCAN_STARTED',
+      severity: 'INFO',
+      title: '🎯 Planning Security Scan',
+      message: `Planning security scan for target: ${scan.target.name} (${scan.target.url})`,
+      data: {
         targetType: scan.target.type,
         scanConfig: scan.config,
         strategy: 'multi-agent-collaborative'
       }
-    );
+    });
 
-    await auditAgent.decision(
+    await logAudit({
       scanId,
-      'system',
-      '🤖 Agent Team Composition',
-      `Deploying 4 specialized AI agents:
+      eventType: 'SCAN_STARTED',
+      severity: 'INFO',
+      title: '🤖 Agent Team Composition',
+      message: `Deploying 4 specialized AI agents:
       1. ORCHESTRATOR - Main coordinator to manage scan workflow
       2. RECON - Reconnaissance specialist for information gathering
       3. SCANNER - Vulnerability scanner for security analysis
       4. EXPLOITER - Exploitation specialist for vulnerability verification`,
-      {
+      data: {
         agentCount: 4,
         specializations: ['orchestration', 'reconnaissance', 'scanning', 'exploitation']
       }
-    );
+    });
 
     try {
       // Create specialized agents based on scan configuration
@@ -398,17 +401,18 @@ export class AgentOrchestrator extends EventEmitter {
         });
       }
 
-      await auditAgent.decision(
+      await logAudit({
         scanId,
-        'system',
-        '✅ Scan Orchestration Complete',
-        `Successfully planned and queued all security testing tasks. Agents will now execute tasks in priority order.`,
-        {
+        eventType: 'SCAN_STARTED',
+        severity: 'INFO',
+        title: '✅ Scan Orchestration Complete',
+        message: `Successfully planned and queued all security testing tasks. Agents will now execute tasks in priority order.`,
+        data: {
           totalTasks: reconAgent && scannerAgent ? 3 : (reconAgent || scannerAgent ? 2 : 0),
           executionModel: 'BullMQ distributed task queue',
           status: 'ready'
         }
-      );
+      });
 
       logger.info(`Created initial task set for scan ${scanId}`);
       this.emit('scan:orchestration:started', { scanId });
