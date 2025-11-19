@@ -193,8 +193,17 @@
 </div>
 
 {#if showNewTargetModal}
-  <div class="modal-overlay" on:click={() => showNewTargetModal = false}>
-    <div class="modal" on:click|stopPropagation>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && (showNewTargetModal = false)}
+    on:keydown={(e) => e.key === 'Escape' && (showNewTargetModal = false)}
+  >
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+    >
       <div class="modal-header">
         <h2>Add New Target</h2>
         <button class="close-btn" on:click={() => showNewTargetModal = false}>×</button>

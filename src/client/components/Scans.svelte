@@ -505,7 +505,13 @@
   {:else}
     <div class="scans-grid">
       {#each scans as scan (scan.id)}
-        <div class="scan-card fade-in" on:click={() => openScanDetails(scan)}>
+        <div
+          class="scan-card fade-in"
+          role="button"
+          tabindex="0"
+          on:click={() => openScanDetails(scan)}
+          on:keydown={(e) => e.key === 'Enter' && openScanDetails(scan)}
+        >
           <div class="scan-header">
             <div>
               <h3>{scan.name}</h3>
@@ -548,23 +554,23 @@
             </div>
           </div>
 
-          <div class="scan-actions" on:click|stopPropagation>
+          <div class="scan-actions" role="group">
             {#if scan.status === 'QUEUED'}
-              <button class="btn btn-sm btn-primary" on:click={() => startScan(scan.id)}>
+              <button class="btn btn-sm btn-primary" on:click|stopPropagation={() => startScan(scan.id)}>
                 Start Scan
               </button>
             {:else if scan.status === 'RUNNING'}
-              <button class="btn btn-sm btn-warning" on:click={() => pauseScan(scan.id)}>
+              <button class="btn btn-sm btn-warning" on:click|stopPropagation={() => pauseScan(scan.id)}>
                 Pause
               </button>
-              <button class="btn btn-sm btn-danger" on:click={() => stopScan(scan.id)}>
+              <button class="btn btn-sm btn-danger" on:click|stopPropagation={() => stopScan(scan.id)}>
                 Stop
               </button>
             {:else if scan.status === 'PAUSED'}
-              <button class="btn btn-sm btn-primary" on:click={() => resumeScan(scan.id)}>
+              <button class="btn btn-sm btn-primary" on:click|stopPropagation={() => resumeScan(scan.id)}>
                 Resume
               </button>
-              <button class="btn btn-sm btn-danger" on:click={() => stopScan(scan.id)}>
+              <button class="btn btn-sm btn-danger" on:click|stopPropagation={() => stopScan(scan.id)}>
                 Stop
               </button>
             {/if}
@@ -583,8 +589,17 @@
 </div>
 
 {#if showNewScanModal}
-  <div class="modal-overlay" on:click={() => showNewScanModal = false}>
-    <div class="modal" on:click|stopPropagation>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && (showNewScanModal = false)}
+    on:keydown={(e) => e.key === 'Escape' && (showNewScanModal = false)}
+  >
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+    >
       <div class="modal-header">
         <h2>Create New Scan</h2>
         <button class="close-btn" on:click={() => showNewScanModal = false}>×</button>
@@ -648,8 +663,17 @@
 {/if}
 
 {#if showScanDetailModal}
-  <div class="modal-overlay" on:click={closeScanDetails}>
-    <div class="modal modal-large" on:click|stopPropagation>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && closeScanDetails()}
+    on:keydown={(e) => e.key === 'Escape' && closeScanDetails()}
+  >
+    <div
+      class="modal modal-large"
+      role="dialog"
+      aria-modal="true"
+    >
       <div class="modal-header">
         <h2>{selectedScan?.name || 'Scan Details'}</h2>
         <button class="close-btn" on:click={closeScanDetails}>×</button>
