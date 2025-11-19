@@ -862,14 +862,26 @@ As a reporter:
 
         // Call OpenAI with current conversation context
         const response = await this.openaiLimiter(async () => {
-          return this.openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
+          const model = process.env.OPENAI_MODEL || 'gpt-4o';
+
+          // Use max_completion_tokens for newer models (gpt-4o, o1, etc.)
+          // Use max_tokens for older models (gpt-4-turbo-preview, gpt-3.5-turbo)
+          const completionParams: any = {
+            model,
             messages,
             tools: this.getAvailableTools(),
             tool_choice: 'auto',
-            temperature: 0.7,
-            max_tokens: 4000
-          });
+            temperature: 0.7
+          };
+
+          // Newer models use max_completion_tokens
+          if (model.includes('gpt-4o') || model.includes('o1') || model.includes('gpt-4-turbo')) {
+            completionParams.max_completion_tokens = 4000;
+          } else {
+            completionParams.max_tokens = 4000;
+          }
+
+          return this.openai.chat.completions.create(completionParams);
         });
 
         const assistantMessage = response.choices[0].message;
