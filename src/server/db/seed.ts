@@ -296,12 +296,12 @@ async function main() {
       severity: 'CRITICAL',
       status: 'CONFIRMED',
       category: 'INJECTION',
-      cvssScore: 9.8,
-      cveId: 'CVE-2023-XXXX',
-      affectedComponent: '/login.php',
+      cvss: 9.8,
+      cve: 'CVE-2023-XXXX',
       remediation: 'Use parameterized queries or prepared statements. Never concatenate user input directly into SQL queries.',
       references: ['https://owasp.org/www-community/attacks/SQL_Injection'],
       evidence: {
+        affectedComponent: '/login.php',
         request: "POST /login.php\nusername=admin' OR '1'='1&password=anything",
         response: 'Login successful',
         payload: "admin' OR '1'='1"
@@ -316,11 +316,11 @@ async function main() {
       severity: 'HIGH',
       status: 'CONFIRMED',
       category: 'XSS',
-      cvssScore: 7.2,
-      affectedComponent: '/search.php',
+      cvss: 7.2,
       remediation: 'Implement proper input validation and output encoding. Use Content Security Policy headers.',
       references: ['https://owasp.org/www-community/attacks/xss/'],
       evidence: {
+        affectedComponent: '/search.php',
         payload: '<script>alert(document.cookie)</script>',
         location: 'search parameter'
       }
@@ -334,11 +334,11 @@ async function main() {
       severity: 'MEDIUM',
       status: 'CONFIRMED',
       category: 'MISCONFIGURATION',
-      cvssScore: 5.3,
-      affectedComponent: 'All pages',
+      cvss: 5.3,
       remediation: 'Add security headers to all HTTP responses. Use a security header middleware.',
       references: ['https://owasp.org/www-project-secure-headers/'],
       evidence: {
+        affectedComponent: 'All pages',
         missingHeaders: ['X-Frame-Options', 'X-Content-Type-Options', 'Strict-Transport-Security']
       }
     },
@@ -351,11 +351,11 @@ async function main() {
       severity: 'MEDIUM',
       status: 'CONFIRMED',
       category: 'MISCONFIGURATION',
-      cvssScore: 6.1,
-      affectedComponent: 'Web server',
+      cvss: 6.1,
       remediation: 'Update to the latest stable version of the web server software.',
       references: [],
       evidence: {
+        affectedComponent: 'Web server',
         currentVersion: 'Apache/2.4.41',
         latestVersion: 'Apache/2.4.58'
       }
@@ -369,11 +369,11 @@ async function main() {
       severity: 'LOW',
       status: 'CONFIRMED',
       category: 'INFO_DISCLOSURE',
-      cvssScore: 3.7,
-      affectedComponent: '/error',
+      cvss: 3.7,
       remediation: 'Implement generic error messages for users and log detailed errors server-side.',
       references: ['https://owasp.org/www-project-top-ten/2017/A3_2017-Sensitive_Data_Exposure'],
       evidence: {
+        affectedComponent: '/error',
         errorMessage: 'MySQL Error: Table users not found in database testfire_db'
       }
     }
