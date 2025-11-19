@@ -3,18 +3,26 @@
 
   export let scanId: string;
 
-  let auditLogs: any[] = [];
-  let loading = true;
-  let error = '';
+  let agents: any[] = [];
+  let currentAgentIndex = 0;
+  let totalAgents = 0;
   let scanInfo: any = null;
+  let auditLogs: any[] = [];
   let refreshInterval: any = null;
-  let autoScroll = true;
+  let thinkingDots = '⠿';
+  let cwd = '/';
+  let isThinking = false;
 
   onMount(async () => {
     await loadScanInfo();
     await fetchAuditLogs();
-    // Auto-refresh every 1 second for real-time feel
     refreshInterval = setInterval(fetchAuditLogs, 1000);
+
+    // Animate thinking indicator
+    setInterval(() => {
+      const dots = ['⠿', '⠾', '⠽', '⠻', '⠯', '⠟', '⠷', '⠾'];
+      thinkingDots = dots[Math.floor(Date.now() / 100) % dots.length];
+    }, 100);
   });
 
   onDestroy(() => {
@@ -40,12 +48,16 @@
                 name
                 status
                 progress
-                createdAt
                 target {
-                  id
                   name
                   url
+                }
+                agents {
+                  id
+                  name
                   type
+                  role
+                  status
                 }
               }
             }
@@ -57,8 +69,10 @@
       const result = await response.json();
       if (result.data?.scan) {
         scanInfo = result.data.scan;
+        agents = result.data.scan.agents || [];
+        totalAgents = agents.length;
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to load scan info:', err);
     }
   }
@@ -83,15 +97,10 @@
                 message
                 timestamp
                 data
-                scan {
-                  id
-                  name
-                  status
-                }
                 agent {
                   id
-                  name
                   type
+                  role
                 }
                 task {
                   id
@@ -106,547 +115,452 @@
       });
 
       const result = await response.json();
-
-      if (result.errors) {
-        error = result.errors[0].message;
-        loading = false;
-        return;
+      if (result.data?.auditLogs) {
+        auditLogs = result.data.auditLogs;
+        isThinking = scanInfo?.status === 'RUNNING';
+        scrollToBottom();
       }
 
-      const newLogs = result.data.auditLogs || [];
-
-      // Only update if there are new logs
-      if (newLogs.length !== auditLogs.length) {
-        auditLogs = newLogs;
-        if (autoScroll) {
-          scrollToBottom();
-        }
-      }
-
-      loading = false;
-
-      // Also refresh scan info
-      if (scanInfo && scanInfo.status === 'RUNNING') {
-        await loadScanInfo();
-      }
-    } catch (err: any) {
-      error = err.message;
-      loading = false;
+      await loadScanInfo();
+    } catch (err) {
+      console.error('Failed to fetch audit logs:', err);
     }
   }
 
   function scrollToBottom() {
     setTimeout(() => {
-      const container = document.querySelector('.console-stream');
+      const container = document.querySelector('.console-output');
       if (container) {
         container.scrollTop = container.scrollHeight;
       }
     }, 50);
   }
 
-  function getEventTypeIcon(eventType: string): string {
-    const icons: Record<string, string> = {
-      SCAN_STARTED: '🚀',
-      SCAN_COMPLETED: '✅',
-      SCAN_FAILED: '❌',
-      AGENT_CREATED: '🤖',
-      AGENT_REASONING: '💭',
-      TASK_CREATED: '📋',
-      TASK_STARTED: '▶️',
-      TASK_COMPLETED: '✔️',
-      TASK_FAILED: '⚠️',
-      TOOL_EXECUTION: '🔧',
-      LLM_INTERACTION: '🧠',
-      FINDING_CREATED: '🔍',
-      DECISION_MADE: '⚡',
-      ERROR_OCCURRED: '💥',
-      PROGRESS_UPDATE: '📊'
-    };
-    return icons[eventType] || '📝';
+  // Group logs by agent for sequential display
+  $: agentLogs = groupLogsByAgent(auditLogs);
+
+  function groupLogsByAgent(logs: any[]) {
+    const grouped = new Map();
+
+    logs.forEach(log => {
+      const agentId = log.agent?.id || 'system';
+      if (!grouped.has(agentId)) {
+        grouped.set(agentId, {
+          agent: log.agent,
+          logs: []
+        });
+      }
+      grouped.get(agentId).logs.push(log);
+    });
+
+    return Array.from(grouped.values());
+  }
+
+  function formatThought(message: string): string {
+    return message;
+  }
+
+  function formatToolCall(log: any): string {
+    if (log.eventType === 'TOOL_EXECUTION' && log.data) {
+      const toolType = log.data.toolType || log.task?.type || 'unknown';
+      const params = log.data.params || {};
+
+      // Format like: grep(filter:*.js pattern:window\.location\.href)
+      const paramStr = Object.entries(params)
+        .map(([key, value]) => `${key}:${value}`)
+        .join(' ');
+
+      return paramStr ? `${toolType}(${paramStr})` : toolType;
+    }
+    return log.title;
+  }
+
+  function getAgentNumber(agentGroup: any): number {
+    const agentIndex = agents.findIndex(a => a.id === agentGroup.agent?.id);
+    return agentIndex >= 0 ? agentIndex + 1 : 0;
   }
 
   function formatTimestamp(timestamp: string): string {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3
-    });
-  }
-
-  function getStatusBadgeClass(status: string): string {
-    const classes: Record<string, string> = {
-      'PENDING': 'badge-pending',
-      'QUEUED': 'badge-queued',
-      'RUNNING': 'badge-running',
-      'COMPLETED': 'badge-completed',
-      'FAILED': 'badge-failed',
-      'CANCELLED': 'badge-cancelled'
-    };
-    return classes[status] || 'badge-default';
+    return date.toLocaleTimeString('en-US', { hour12: false });
   }
 </script>
 
-<div class="scan-console">
-  {#if scanInfo}
-    <header class="scan-header">
-      <div class="scan-title-area">
-        <h1>🎯 Live Execution Console</h1>
-        <div class="scan-info">
-          <span class="scan-name">{scanInfo.name}</span>
-          <span class="separator">•</span>
-          <span class="target-name">{scanInfo.target.name}</span>
-          <span class="separator">•</span>
-          <span class="target-url">{scanInfo.target.url}</span>
-        </div>
+<div class="hacktron-console">
+  <div class="console-header">
+    <div class="logo">TELLA AI</div>
+    {#if scanInfo}
+      <div class="scan-meta">
+        <span class="target-name">{scanInfo.target.name}</span>
+        <span class="divider">│</span>
+        <span class="target-url">{scanInfo.target.url}</span>
       </div>
-      <div class="scan-status-area">
-        <div class="status-badge {getStatusBadgeClass(scanInfo.status)}">
-          {scanInfo.status}
-        </div>
-        {#if scanInfo.status === 'RUNNING'}
-          <div class="progress-bar">
-            <div class="progress-fill" style="width: {scanInfo.progress}%"></div>
-            <span class="progress-text">{scanInfo.progress}%</span>
-          </div>
-        {/if}
-      </div>
-    </header>
-  {/if}
+    {/if}
+  </div>
 
-  {#if loading && auditLogs.length === 0}
-    <div class="loading-state">
-      <div class="spinner"></div>
-      <p>Initializing console...</p>
-    </div>
-  {:else if error}
-    <div class="error-state">
-      <span class="error-icon">⚠️</span>
-      <p>{error}</p>
-    </div>
-  {:else if auditLogs.length === 0}
-    <div class="empty-state">
-      <div class="waiting-animation">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
-      <h2>Waiting for scan to start...</h2>
-      <p>The console will show live updates as the scan executes.</p>
-    </div>
-  {:else}
-    <div class="console-stream">
-      {#each auditLogs as log (log.id)}
-        <div class="stream-entry severity-{log.severity.toLowerCase()} event-{log.eventType.toLowerCase()}">
-          <div class="entry-header">
-            <span class="entry-timestamp">{formatTimestamp(log.timestamp)}</span>
-            <span class="entry-icon">{getEventTypeIcon(log.eventType)}</span>
-            <span class="entry-type">{log.eventType.replace(/_/g, ' ')}</span>
-            {#if log.agent}
-              <span class="entry-agent">{log.agent.type}</span>
-            {/if}
+  <div class="console-output">
+    {#each agentLogs as agentGroup}
+      {@const agentNum = getAgentNumber(agentGroup)}
+
+      {#if agentGroup.agent}
+        <!-- Agent Started -->
+        <div class="log-line agent-start">
+          <span class="text-blue">Starting Agent {agentNum}/{totalAgents}: {agentGroup.agent.role || agentGroup.agent.type}</span>
+        </div>
+      {/if}
+
+      {#each agentGroup.logs as log}
+        <!-- Thought Process -->
+        {#if log.eventType === 'AGENT_REASONING' || log.eventType === 'DECISION_MADE'}
+          <div class="log-line thought">
+            <span class="thought-marker">◆ Thought:</span>
+            <span class="thought-text">{formatThought(log.message)}</span>
           </div>
 
-          <div class="entry-title">{log.title}</div>
+        <!-- Tool Execution -->
+        {:else if log.eventType === 'TOOL_EXECUTION'}
+          <div class="log-line tool">
+            <span class="tool-prefix">Tool →</span>
+            <span class="tool-call">{formatToolCall(log)}</span>
+          </div>
 
-          {#if log.message}
-            <div class="entry-message">{log.message}</div>
-          {/if}
-
-          {#if log.task}
-            <div class="entry-context">
-              <span class="context-icon">📋</span>
-              <span class="context-text">{log.task.type}: {log.task.description}</span>
+          <!-- Tool Result -->
+          {#if log.data?.result}
+            <div class="log-line tool-result">
+              {#if log.data.result.files}
+                <div class="files-list">
+                  <span class="label">• Files list</span>
+                  {#each log.data.result.files as file}
+                    <div class="file-item">
+                      <span class="label">• Path string:</span>
+                      <span class="text-green">{file.path}</span>
+                      {#if file.line}
+                        <span class="text-green">/{file.path}</span>
+                      {/if}
+                    </div>
+                    {#if file.line}
+                      <div class="file-item">
+                        <span class="label">• Line number:</span>
+                        <span>{file.line}</span>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {:else if typeof log.data.result === 'string'}
+                <pre class="result-text">{log.data.result}</pre>
+              {:else}
+                <pre class="result-text">{JSON.stringify(log.data.result, null, 2)}</pre>
+              {/if}
             </div>
           {/if}
 
-          {#if log.data && Object.keys(log.data).length > 0}
-            <details class="entry-data">
-              <summary>View detailed data</summary>
-              <pre>{JSON.stringify(log.data, null, 2)}</pre>
-            </details>
+        <!-- Task Status -->
+        {:else if log.eventType === 'TASK_STARTED'}
+          <div class="log-line info">
+            <span class="dim">{log.title}</span>
+          </div>
+
+        <!-- Findings -->
+        {:else if log.eventType === 'FINDING_CREATED'}
+          <div class="log-line finding">
+            <span class="finding-marker">• Finding:</span>
+            <span class="finding-title">{log.title}</span>
+          </div>
+          {#if log.message}
+            <div class="log-line finding-detail">
+              <span class="dim">{log.message}</span>
+            </div>
           {/if}
-        </div>
+
+        <!-- Progress Updates -->
+        {:else if log.eventType === 'PROGRESS_UPDATE'}
+          <div class="log-line dim">
+            {log.message}
+          </div>
+
+        <!-- Stream Completed -->
+        {:else if log.eventType === 'TASK_COMPLETED' && log.title.includes('Stream completed')}
+          <div class="log-line dim">
+            Stream completed.
+          </div>
+        {/if}
       {/each}
 
-      {#if scanInfo && scanInfo.status === 'RUNNING'}
-        <div class="stream-indicator">
-          <span class="pulse"></span>
-          <span class="text">Streaming live...</span>
+      {#if agentGroup.agent}
+        <!-- Agent Completed -->
+        <div class="log-line agent-end">
+          <span class="text-blue">Agent {agentNum}/{totalAgents} completed: {agentGroup.agent.role || agentGroup.agent.type}</span>
         </div>
+        <div class="spacer"></div>
+      {/if}
+    {/each}
+
+    {#if auditLogs.length === 0}
+      <div class="log-line dim">
+        Waiting for scan to initialize...
+      </div>
+    {/if}
+  </div>
+
+  <div class="console-footer">
+    <div class="footer-left">
+      {#if isThinking}
+        <span class="thinking">thinking {thinkingDots}</span>
+      {:else}
+        <span class="status">CWD:</span>
       {/if}
     </div>
-  {/if}
-
-  <div class="console-controls">
-    <label class="control-label">
-      <input type="checkbox" bind:checked={autoScroll} />
-      Auto-scroll to latest
-    </label>
+    <div class="footer-center">
+      <span class="hint">Press ! for shell mode</span>
+    </div>
+    <div class="footer-right">
+      <span class="prompt">&gt; </span>
+      <span class="cursor">▋</span>
+      <span class="help-text dim">What are we securing today? Use /help for more information.</span>
+    </div>
   </div>
 </div>
 
 <style>
-  .scan-console {
+  .hacktron-console {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: #0a0a0a;
+    background: #000;
     color: #e0e0e0;
-  }
-
-  .scan-header {
-    padding: 1.5rem 2rem;
-    background: #1a1a1a;
-    border-bottom: 2px solid #333;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 2rem;
-  }
-
-  .scan-title-area h1 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #fff;
-    margin: 0 0 0.5rem 0;
-  }
-
-  .scan-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: #999;
-  }
-
-  .scan-name {
-    color: #0dcaf0;
-    font-weight: 600;
-  }
-
-  .target-url {
-    font-family: 'JetBrains Mono', monospace;
-    color: #aaa;
-  }
-
-  .separator {
-    color: #555;
-  }
-
-  .scan-status-area {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .status-badge {
-    padding: 0.5rem 1rem;
-    border-radius: 1.5rem;
-    font-size: 0.875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .badge-running {
-    background: #198754;
-    color: white;
-    animation: pulse-glow 2s infinite;
-  }
-
-  .badge-completed {
-    background: #0dcaf0;
-    color: black;
-  }
-
-  .badge-failed {
-    background: #dc3545;
-    color: white;
-  }
-
-  .badge-pending, .badge-queued {
-    background: #6c757d;
-    color: white;
-  }
-
-  @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 10px rgba(25, 135, 84, 0.5); }
-    50% { box-shadow: 0 0 20px rgba(25, 135, 84, 0.8); }
-  }
-
-  .progress-bar {
-    width: 200px;
-    height: 24px;
-    background: #2a2a2a;
-    border-radius: 12px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #198754, #0dcaf0);
-    transition: width 0.5s ease;
-  }
-
-  .progress-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: white;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  }
-
-  .console-stream {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
     font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: 0.875rem;
+    font-size: 14px;
     line-height: 1.6;
   }
 
-  .stream-entry {
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: #1a1a1a;
-    border-left: 4px solid #666;
-    border-radius: 0.5rem;
-    animation: slide-in 0.3s ease-out;
-  }
-
-  @keyframes slide-in {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .stream-entry.severity-debug { border-left-color: #6c757d; }
-  .stream-entry.severity-info { border-left-color: #0dcaf0; }
-  .stream-entry.severity-warning { border-left-color: #ffc107; }
-  .stream-entry.severity-error { border-left-color: #dc3545; }
-  .stream-entry.severity-critical {
-    border-left-color: #d9534f;
-    background: rgba(217, 83, 79, 0.1);
-    animation: slide-in 0.3s ease-out, pulse-critical 2s infinite;
-  }
-
-  @keyframes pulse-critical {
-    0%, 100% { box-shadow: 0 0 0 rgba(217, 83, 79, 0); }
-    50% { box-shadow: 0 0 20px rgba(217, 83, 79, 0.3); }
-  }
-
-  .entry-header {
+  .console-header {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-    flex-wrap: wrap;
+    padding: 1rem 1.5rem;
+    background: #000;
+    border-bottom: 1px solid #333;
   }
 
-  .entry-timestamp {
-    color: #666;
-    font-size: 0.75rem;
+  .logo {
     font-weight: 700;
-  }
-
-  .entry-icon {
-    font-size: 1.25rem;
-  }
-
-  .entry-type {
-    color: #0dcaf0;
-    font-weight: 600;
-    text-transform: capitalize;
-  }
-
-  .entry-agent {
-    padding: 0.25rem 0.5rem;
-    background: rgba(13, 202, 240, 0.2);
-    border: 1px solid rgba(13, 202, 240, 0.4);
-    border-radius: 0.25rem;
-    font-size: 0.75rem;
-    color: #0dcaf0;
-  }
-
-  .entry-title {
+    font-size: 1rem;
+    letter-spacing: 2px;
     color: #fff;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    font-size: 1rem;
   }
 
-  .entry-message {
-    color: #ccc;
-    white-space: pre-wrap;
-    margin-bottom: 0.5rem;
-  }
-
-  .entry-context {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background: rgba(13, 202, 240, 0.1);
-    border-radius: 0.25rem;
-    margin-top: 0.5rem;
-    font-size: 0.8rem;
-  }
-
-  .context-icon {
-    font-size: 1rem;
-  }
-
-  .context-text {
-    color: #aaa;
-  }
-
-  .entry-data {
-    margin-top: 0.75rem;
-    cursor: pointer;
-  }
-
-  .entry-data summary {
-    color: #0dcaf0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.5rem;
-    background: #0a0a0a;
-    border-radius: 0.25rem;
-    user-select: none;
-  }
-
-  .entry-data pre {
-    margin-top: 0.5rem;
-    padding: 1rem;
-    background: #0a0a0a;
-    border: 1px solid #333;
-    border-radius: 0.25rem;
-    overflow-x: auto;
-    color: #0dcaf0;
-    font-size: 0.75rem;
-  }
-
-  .stream-indicator {
+  .scan-meta {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 1rem;
-    justify-content: center;
-    color: #0dcaf0;
     font-size: 0.875rem;
   }
 
-  .pulse {
-    width: 12px;
-    height: 12px;
-    background: #0dcaf0;
-    border-radius: 50%;
-    animation: pulse 1.5s ease-in-out infinite;
+  .target-name {
+    color: #0dcaf0;
   }
 
-  @keyframes pulse {
-    0%, 100% {
-      transform: scale(1);
-      opacity: 1;
-    }
-    50% {
-      transform: scale(1.5);
-      opacity: 0.5;
-    }
+  .divider {
+    color: #444;
   }
 
-  .loading-state, .error-state, .empty-state {
+  .target-url {
+    color: #888;
+  }
+
+  .console-output {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 4rem 2rem;
+    overflow-y: auto;
+    padding: 1.5rem;
+    background: #000;
   }
 
-  .spinner {
-    width: 3rem;
-    height: 3rem;
-    border: 4px solid #333;
-    border-top-color: #0dcaf0;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 1rem;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .waiting-animation {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .dot {
-    width: 1rem;
-    height: 1rem;
-    background: #0dcaf0;
-    border-radius: 50%;
-    animation: bounce 1.4s infinite ease-in-out both;
-  }
-
-  .dot:nth-child(1) { animation-delay: -0.32s; }
-  .dot:nth-child(2) { animation-delay: -0.16s; }
-
-  @keyframes bounce {
-    0%, 80%, 100% {
-      transform: scale(0);
-    }
-    40% {
-      transform: scale(1);
-    }
-  }
-
-  .empty-state h2 {
-    color: #fff;
+  .log-line {
     margin-bottom: 0.5rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
   }
 
-  .empty-state p {
+  .spacer {
+    height: 1.5rem;
+  }
+
+  /* Agent Start/End */
+  .agent-start, .agent-end {
+    margin: 1rem 0;
+  }
+
+  .text-blue {
+    color: #5d9cec;
+    font-weight: 500;
+  }
+
+  /* Thought Process */
+  .thought {
+    margin: 1rem 0 0.5rem 0;
+  }
+
+  .thought-marker {
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .thought-text {
+    color: #ccc;
+    display: block;
+    margin-left: 2rem;
+    margin-top: 0.5rem;
+    line-height: 1.8;
+  }
+
+  /* Tool Execution */
+  .tool {
+    margin: 0.75rem 0 0.25rem 0;
+  }
+
+  .tool-prefix {
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .tool-call {
+    color: #e0e0e0;
+  }
+
+  /* Tool Results */
+  .tool-result {
+    margin-left: 2rem;
+    margin-top: 0.5rem;
     color: #999;
   }
 
-  .error-icon {
-    font-size: 4rem;
-    margin-bottom: 1rem;
+  .files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
-  .console-controls {
-    padding: 1rem 2rem;
-    background: #1a1a1a;
-    border-top: 1px solid #333;
+  .file-item {
+    margin-left: 1rem;
   }
 
-  .control-label {
+  .label {
+    color: #888;
+  }
+
+  .text-green {
+    color: #5cb85c;
+  }
+
+  .result-text {
+    margin: 0.5rem 0;
+    padding: 0.75rem;
+    background: #0a0a0a;
+    border-left: 3px solid #333;
+    color: #aaa;
+    overflow-x: auto;
+  }
+
+  /* Findings */
+  .finding {
+    margin: 0.75rem 0 0.25rem 0;
+  }
+
+  .finding-marker {
+    color: #ffc107;
+    font-weight: 600;
+  }
+
+  .finding-title {
+    color: #fff;
+  }
+
+  .finding-detail {
+    margin-left: 2rem;
+    color: #999;
+  }
+
+  /* Utility */
+  .dim {
+    color: #666;
+  }
+
+  .info {
+    color: #888;
+  }
+
+  /* Footer / Status Bar */
+  .console-footer {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    user-select: none;
-    color: #aaa;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background: #1a1a1a;
+    border-top: 1px solid #333;
     font-size: 0.875rem;
   }
 
-  .control-label input[type="checkbox"] {
-    cursor: pointer;
+  .footer-left, .footer-center, .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .footer-right {
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .thinking {
+    color: #ffc107;
+    font-weight: 600;
+  }
+
+  .status {
+    color: #888;
+    font-weight: 600;
+  }
+
+  .hint {
+    color: #666;
+    font-size: 0.8rem;
+  }
+
+  .prompt {
+    color: #0dcaf0;
+    font-weight: 700;
+  }
+
+  .cursor {
+    color: #0dcaf0;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .help-text {
+    color: #555;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+  }
+
+  /* Scrollbar */
+  .console-output::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .console-output::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+
+  .console-output::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
+
+  .console-output::-webkit-scrollbar-thumb:hover {
+    background: #444;
   }
 </style>
