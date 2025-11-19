@@ -2,23 +2,13 @@
   import { onMount } from 'svelte';
 
   let loading = true;
-  let saving = false;
-  let testing = false;
-  let testResult: { success: boolean; message: string } | null = null;
-
-  // Settings data
-  let openaiApiKey = '';
-  let hasExistingKey = false;
-  let showKey = false;
-
-  // Success/error messages
-  let saveMessage: { type: 'success' | 'error'; text: string } | null = null;
+  let configStatus: any = null;
 
   onMount(async () => {
-    await loadSettings();
+    await loadConfigStatus();
   });
 
-  async function loadSettings() {
+  async function loadConfigStatus() {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch('/graphql', {
@@ -29,12 +19,10 @@
         },
         body: JSON.stringify({
           query: `
-            query GetSettings {
-              systemSetting(key: "OPENAI_API_KEY") {
+            query {
+              me {
                 id
-                key
-                value
-                encrypted
+                email
               }
             }
           `
@@ -42,282 +30,186 @@
       });
 
       const result = await response.json();
-      if (result.data?.systemSetting) {
-        hasExistingKey = true;
-        // Don't show the actual key for security, just indicate it exists
-        openaiApiKey = ''; // Keep empty, user can update if needed
+      if (result.data) {
+        // Just check if we're authenticated
+        configStatus = {
+          authenticated: true
+        };
       }
     } catch (err) {
-      console.error('Failed to load settings:', err);
+      console.error('Failed to load status:', err);
     } finally {
       loading = false;
     }
   }
 
-  async function saveSettings() {
-    if (!openaiApiKey.trim()) {
-      saveMessage = { type: 'error', text: 'Please enter an OpenAI API key' };
-      return;
-    }
-
-    if (!openaiApiKey.startsWith('sk-')) {
-      saveMessage = { type: 'error', text: 'Invalid OpenAI API key format (should start with "sk-")' };
-      return;
-    }
-
-    saving = true;
-    saveMessage = null;
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          query: `
-            mutation UpdateSetting($key: String!, $value: String!, $encrypted: Boolean) {
-              updateSystemSetting(key: $key, value: $value, encrypted: $encrypted) {
-                success
-                message
-              }
-            }
-          `,
-          variables: {
-            key: 'OPENAI_API_KEY',
-            value: openaiApiKey,
-            encrypted: true
-          }
-        })
-      });
-
-      const result = await response.json();
-      if (result.data?.updateSystemSetting?.success) {
-        saveMessage = { type: 'success', text: 'OpenAI API key saved successfully!' };
-        hasExistingKey = true;
-        openaiApiKey = ''; // Clear the input for security
-
-        // Also update .env file warning
-        showEnvWarning();
-      } else {
-        const errorMsg = result.data?.updateSystemSetting?.message || 'Failed to save API key';
-        saveMessage = { type: 'error', text: errorMsg };
-      }
-    } catch (err) {
-      console.error('Failed to save settings:', err);
-      saveMessage = { type: 'error', text: 'Network error: Failed to save settings' };
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function testConnection() {
-    if (!openaiApiKey.trim() && !hasExistingKey) {
-      testResult = { success: false, message: 'Please enter or save an API key first' };
-      return;
-    }
-
-    testing = true;
-    testResult = null;
-
-    try {
-      // Test by making a simple OpenAI API call
-      const keyToTest = openaiApiKey.trim() || 'use-existing-key';
-
-      const response = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey.trim()}`
-        }
-      });
-
-      if (response.ok) {
-        testResult = { success: true, message: 'Connection successful! OpenAI API key is valid.' };
-      } else if (response.status === 401) {
-        testResult = { success: false, message: 'Invalid API key. Please check your OpenAI API key.' };
-      } else {
-        testResult = { success: false, message: `Connection failed: ${response.statusText}` };
-      }
-    } catch (err) {
-      console.error('Failed to test connection:', err);
-      testResult = { success: false, message: 'Network error: Could not connect to OpenAI' };
-    } finally {
-      testing = false;
-    }
-  }
-
-  function showEnvWarning() {
-    // Show warning about updating .env file
-    alert('⚠️ Important: For the changes to take effect, you need to:\n\n1. Update your .env file with: OPENAI_API_KEY=' + (openaiApiKey || '[your-key]') + '\n2. Restart the server\n\nOr the setting will only be stored in the database but not used by the AI agents.');
-  }
-
-  function clearSaveMessage() {
-    saveMessage = null;
-  }
-
-  function clearTestResult() {
-    testResult = null;
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
   }
 </script>
 
 <div class="settings-page">
   <header class="page-header">
     <div>
-      <h1>System Settings</h1>
-      <p>Configure platform settings and API integrations</p>
+      <h1>⚙️ System Configuration</h1>
+      <p>View system configuration and setup instructions</p>
     </div>
   </header>
 
   {#if loading}
     <div class="loading">
       <div class="spinner spin"></div>
-      <p>Loading settings...</p>
+      <p>Loading...</p>
     </div>
   {:else}
     <div class="settings-container">
-      <!-- OpenAI API Key Section -->
+      <!-- Configuration Instructions -->
       <section class="settings-section">
         <div class="section-header">
-          <h2>🤖 OpenAI API Configuration</h2>
-          <span class="badge badge-critical">Required</span>
+          <h2>🔧 Environment Configuration</h2>
         </div>
         <p class="section-description">
-          Configure your OpenAI API key to enable AI-powered security scanning agents.
-          Without a valid API key, all scans will fail immediately.
+          All system configuration is managed through environment variables in the <code>.env</code> file.
+          Settings cannot be changed through the UI for security reasons.
         </p>
 
-        {#if hasExistingKey}
-          <div class="info-message">
-            <span class="info-icon">ℹ️</span>
-            <div>
-              <strong>API Key Configured</strong>
-              <p>An OpenAI API key is currently configured. Enter a new key below to update it.</p>
+        <div class="config-info-box">
+          <h3>📝 Required Configuration</h3>
+          <p>Edit your <code>.env</code> file to configure the following:</p>
+
+          <div class="config-item">
+            <div class="config-header">
+              <strong>OpenAI API Key</strong>
+              <span class="badge badge-critical">Required</span>
             </div>
+            <pre class="config-example">OPENAI_API_KEY=sk-proj-your-api-key-here</pre>
+            <p class="config-description">
+              Required for AI-powered security scanning. Get your API key from
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>.
+            </p>
           </div>
-        {/if}
 
-        <div class="form-group">
-          <label for="openai-key">
-            OpenAI API Key
-            <span class="required">*</span>
-          </label>
-          <div class="input-with-toggle">
-            {#if showKey}
-              <input
-                id="openai-key"
-                type="text"
-                bind:value={openaiApiKey}
-                on:input={clearSaveMessage}
-                on:input={clearTestResult}
-                placeholder={hasExistingKey ? 'Enter new API key to update...' : 'sk-...'}
-                class="input-field"
-              />
-            {:else}
-              <input
-                id="openai-key"
-                type="password"
-                bind:value={openaiApiKey}
-                on:input={clearSaveMessage}
-                on:input={clearTestResult}
-                placeholder={hasExistingKey ? 'Enter new API key to update...' : 'sk-...'}
-                class="input-field"
-              />
-            {/if}
-            <button
-              type="button"
-              class="btn btn-icon"
-              on:click={() => showKey = !showKey}
-              title={showKey ? 'Hide key' : 'Show key'}
-            >
-              {showKey ? '🙈' : '👁️'}
-            </button>
+          <div class="config-item">
+            <div class="config-header">
+              <strong>OpenAI Model</strong>
+              <span class="badge badge-info">Optional</span>
+            </div>
+            <pre class="config-example">OPENAI_MODEL=gpt-4-turbo-preview</pre>
+            <p class="config-description">
+              Defaults to <code>gpt-4-turbo-preview</code>. Can use <code>gpt-3.5-turbo</code> for lower costs.
+            </p>
           </div>
-          <small class="help-text">
-            Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a>
-          </small>
+
+          <div class="config-item">
+            <div class="config-header">
+              <strong>JWT Secret</strong>
+              <span class="badge badge-critical">Required</span>
+            </div>
+            <pre class="config-example">JWT_SECRET=your-secret-key-min-64-characters-long</pre>
+            <p class="config-description">
+              Used for authentication token signing. Must be at least 64 characters.
+            </p>
+          </div>
+
+          <div class="config-item">
+            <div class="config-header">
+              <strong>Max Concurrent Agents</strong>
+              <span class="badge badge-info">Optional</span>
+            </div>
+            <pre class="config-example">MAX_CONCURRENT_AGENTS=5</pre>
+            <p class="config-description">
+              Maximum number of concurrent AI agents. Defaults to 5.
+            </p>
+          </div>
+
+          <div class="config-item">
+            <div class="config-header">
+              <strong>Agent Timeout</strong>
+              <span class="badge badge-info">Optional</span>
+            </div>
+            <pre class="config-example">AGENT_TIMEOUT_MS=300000</pre>
+            <p class="config-description">
+              Timeout for agent tasks in milliseconds. Defaults to 300000 (5 minutes).
+            </p>
+          </div>
         </div>
+      </section>
 
-        <div class="button-group">
-          <button
-            class="btn btn-primary"
-            on:click={saveSettings}
-            disabled={saving || !openaiApiKey.trim()}
-          >
-            {#if saving}
-              <span class="spinner spin-small"></span>
-              Saving...
-            {:else}
-              💾 Save API Key
-            {/if}
-          </button>
-
-          <button
-            class="btn btn-secondary"
-            on:click={testConnection}
-            disabled={testing || (!openaiApiKey.trim() && !hasExistingKey)}
-          >
-            {#if testing}
-              <span class="spinner spin-small"></span>
-              Testing...
-            {:else}
-              🔌 Test Connection
-            {/if}
-          </button>
+      <!-- Apply Changes -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>🔄 Applying Configuration Changes</h2>
         </div>
+        <p class="section-description">
+          After editing the <code>.env</code> file, you must restart the application for changes to take effect.
+        </p>
 
-        {#if saveMessage}
-          <div class="message message-{saveMessage.type}">
-            <span class="message-icon">
-              {saveMessage.type === 'success' ? '✅' : '❌'}
-            </span>
-            <span>{saveMessage.text}</span>
-          </div>
-        {/if}
+        <div class="steps-box">
+          <h3>Steps to Apply Changes:</h3>
+          <ol>
+            <li>
+              <strong>Edit the .env file</strong>
+              <pre>nano .env</pre>
+              <p>or</p>
+              <pre>vim .env</pre>
+            </li>
+            <li>
+              <strong>Save your changes</strong>
+            </li>
+            <li>
+              <strong>Restart the application</strong>
+              <pre>docker-compose restart</pre>
+              <p>or if not using Docker:</p>
+              <pre>npm run dev</pre>
+            </li>
+            <li>
+              <strong>Verify configuration</strong>
+              <p>Check the console logs for any configuration warnings or errors.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
 
-        {#if testResult}
-          <div class="message message-{testResult.success ? 'success' : 'error'}">
-            <span class="message-icon">
-              {testResult.success ? '✅' : '❌'}
-            </span>
-            <span>{testResult.message}</span>
-          </div>
-        {/if}
+      <!-- Security Notice -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>🔒 Security Best Practices</h2>
+        </div>
 
         <div class="warning-box">
-          <strong>⚠️ Cost Warning</strong>
+          <strong>⚠️ Important Security Notes</strong>
+          <ul>
+            <li><strong>Never commit</strong> your <code>.env</code> file to version control</li>
+            <li><strong>Keep API keys secure</strong> and rotate them regularly</li>
+            <li><strong>Use environment-specific</strong> .env files (e.g., <code>.env.production</code>, <code>.env.development</code>)</li>
+            <li><strong>Monitor API usage</strong> to detect unauthorized access</li>
+            <li><strong>Set spending limits</strong> on your OpenAI account to prevent unexpected charges</li>
+          </ul>
+        </div>
+
+        <div class="info-box">
+          <strong>💡 Cost Warning</strong>
           <p>
-            OpenAI API usage costs money:
+            OpenAI API usage incurs costs. Typical scan costs:
           </p>
           <ul>
-            <li>GPT-4 Turbo: ~$1.20-$2.00 per scan</li>
-            <li>100 scans/day ≈ $3,600-$6,000/month</li>
+            <li>GPT-4 Turbo: $1.20-$2.00 per scan</li>
+            <li>GPT-3.5 Turbo: $0.10-$0.30 per scan</li>
           </ul>
           <p>
-            Consider using GPT-3.5 Turbo for lower costs or implementing rate limiting.
+            Monitor your usage at <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer">OpenAI Usage Dashboard</a>
           </p>
         </div>
       </section>
 
-      <!-- Future Settings Sections -->
+      <!-- Environment Status (Future) -->
       <section class="settings-section disabled">
         <div class="section-header">
-          <h2>📧 Email Notifications</h2>
+          <h2>📊 Configuration Status</h2>
           <span class="badge badge-secondary">Coming Soon</span>
         </div>
         <p class="section-description">
-          Configure email notifications for scan completion and critical findings.
-        </p>
-      </section>
-
-      <section class="settings-section disabled">
-        <div class="section-header">
-          <h2>🔗 Webhook Integration</h2>
-          <span class="badge badge-secondary">Coming Soon</span>
-        </div>
-        <p class="section-description">
-          Set up webhooks for Slack, Discord, or custom integrations.
+          Future feature: Real-time monitoring of configuration status and health checks.
         </p>
       </section>
     </div>
@@ -332,9 +224,6 @@
   }
 
   .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
     margin-bottom: 2rem;
   }
 
@@ -357,8 +246,8 @@
   }
 
   .settings-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 0.75rem;
     padding: 1.5rem;
   }
@@ -388,6 +277,89 @@
     line-height: 1.6;
   }
 
+  code {
+    background: var(--bg-primary);
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.875rem;
+    color: var(--primary);
+  }
+
+  pre {
+    background: #1a1a1a;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.875rem;
+    color: #0dcaf0;
+    margin: 0.5rem 0;
+    border: 1px solid #333;
+  }
+
+  .config-info-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+  }
+
+  .config-info-box h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+    font-size: 1.125rem;
+  }
+
+  .config-info-box > p {
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+  }
+
+  .config-item {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .config-item:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .config-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .config-header strong {
+    color: var(--text-primary);
+    font-size: 1rem;
+  }
+
+  .config-example {
+    margin: 0.75rem 0;
+  }
+
+  .config-description {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin: 0.5rem 0 0 0;
+  }
+
+  .config-description a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+
+  .config-description a:hover {
+    text-decoration: underline;
+  }
+
   .badge {
     padding: 0.25rem 0.75rem;
     border-radius: 1rem;
@@ -398,7 +370,12 @@
 
   .badge-critical {
     background: rgba(239, 68, 68, 0.2);
-    color: var(--danger);
+    color: #ef4444;
+  }
+
+  .badge-info {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
   }
 
   .badge-secondary {
@@ -406,166 +383,43 @@
     color: var(--text-secondary);
   }
 
-  .info-message {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    border-left: 4px solid #3b82f6;
+  .steps-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
     border-radius: 0.5rem;
+    padding: 1.5rem;
   }
 
-  .info-icon {
-    font-size: 1.25rem;
-    flex-shrink: 0;
-  }
-
-  .info-message strong {
-    display: block;
-    margin-bottom: 0.25rem;
+  .steps-box h3 {
+    margin: 0 0 1rem 0;
     color: var(--text-primary);
+    font-size: 1.125rem;
   }
 
-  .info-message p {
+  .steps-box ol {
     margin: 0;
+    padding-left: 1.5rem;
     color: var(--text-secondary);
-    font-size: 0.875rem;
   }
 
-  .form-group {
+  .steps-box li {
     margin-bottom: 1.5rem;
+    line-height: 1.6;
   }
 
-  .form-group label {
+  .steps-box li:last-child {
+    margin-bottom: 0;
+  }
+
+  .steps-box strong {
+    color: var(--text-primary);
     display: block;
     margin-bottom: 0.5rem;
-    font-weight: 500;
-    color: var(--text-primary);
   }
 
-  .required {
-    color: var(--danger);
-  }
-
-  .input-with-toggle {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .input-field {
-    flex: 1;
-    padding: 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    color: var(--text-primary);
-    font-family: 'Courier New', monospace;
+  .steps-box p {
+    margin: 0.5rem 0;
     font-size: 0.875rem;
-  }
-
-  .input-field:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-
-  .btn-icon {
-    padding: 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    cursor: pointer;
-    font-size: 1.25rem;
-  }
-
-  .btn-icon:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .help-text {
-    display: block;
-    margin-top: 0.5rem;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-  }
-
-  .help-text a {
-    color: var(--primary);
-    text-decoration: none;
-  }
-
-  .help-text a:hover {
-    text-decoration: underline;
-  }
-
-  .button-group {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .btn {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 0.5rem;
-    font-weight: 500;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: all 0.2s;
-  }
-
-  .btn-primary {
-    background: var(--primary);
-    color: white;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: var(--primary-dark);
-  }
-
-  .btn-secondary {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--bg-secondary);
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .message {
-    padding: 1rem;
-    border-radius: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
-
-  .message-success {
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.3);
-    color: #22c55e;
-  }
-
-  .message-error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: var(--danger);
-  }
-
-  .message-icon {
-    font-size: 1.25rem;
   }
 
   .warning-box {
@@ -574,26 +428,61 @@
     border-left: 4px solid #fbbf24;
     border-radius: 0.5rem;
     padding: 1rem;
-    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
   }
 
   .warning-box strong {
     display: block;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
     color: var(--text-primary);
   }
 
-  .warning-box p {
+  .warning-box ul {
+    margin: 0.5rem 0 0 0;
+    padding-left: 1.5rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.8;
+  }
+
+  .warning-box li {
+    margin-bottom: 0.5rem;
+  }
+
+  .info-box {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-left: 4px solid #3b82f6;
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+
+  .info-box strong {
+    display: block;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+  }
+
+  .info-box p {
     margin: 0.5rem 0;
     color: var(--text-secondary);
     font-size: 0.875rem;
   }
 
-  .warning-box ul {
+  .info-box ul {
     margin: 0.5rem 0;
     padding-left: 1.5rem;
     color: var(--text-secondary);
     font-size: 0.875rem;
+  }
+
+  .info-box a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+
+  .info-box a:hover {
+    text-decoration: underline;
   }
 
   .loading {
@@ -607,7 +496,7 @@
   .spinner {
     width: 40px;
     height: 40px;
-    border: 4px solid var(--border-color);
+    border: 4px solid var(--border);
     border-top-color: var(--primary);
     border-radius: 50%;
     margin-bottom: 1rem;
@@ -615,13 +504,6 @@
 
   .spin {
     animation: spin 1s linear infinite;
-  }
-
-  .spin-small {
-    width: 16px;
-    height: 16px;
-    border-width: 2px;
-    margin: 0;
   }
 
   @keyframes spin {
