@@ -46,25 +46,20 @@ export const scanWorker = new Worker<ScanJobData>(
         where: { id: scanId },
         data: {
           status: 'RUNNING',
-          startedAt: new Date()
+          startedAt: new Date(),
+          progress: 0
         }
       });
 
-      // Initialize orchestrator and run scan
+      // Initialize orchestrator and create agents + tasks
       const orchestrator = new AgentOrchestrator();
       await orchestrator.orchestrateScan(scanId);
 
-      // Update scan status to COMPLETED
-      await prisma.scan.update({
-        where: { id: scanId },
-        data: {
-          status: 'COMPLETED',
-          progress: 100,
-          completedAt: new Date()
-        }
-      });
+      // NOTE: Do NOT mark scan as COMPLETED here!
+      // The scan stays in RUNNING status until all tasks complete.
+      // The checkScanCompletion() function in task worker will mark it COMPLETED.
 
-      logger.info(`Scan ${scanId} completed successfully`);
+      logger.info(`Scan ${scanId} orchestration complete - agents and tasks created`);
 
       return { success: true, scanId };
 
@@ -349,10 +344,10 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
               severity: 'MEDIUM',
               status: 'CONFIRMED',
               category: 'MISCONFIGURATION',
-              cvssScore: 5.0,
-              affectedComponent: task.input.target,
+              cvss: 5.0,
               remediation: 'Review if these services are required. Disable unnecessary services and ensure proper authentication and encryption.',
               evidence: {
+                affectedComponent: task.input.target,
                 openPorts: criticalPorts,
                 scanType: result.scanType,
                 totalPorts: result.openPorts.length
@@ -375,10 +370,10 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
               severity: vuln.severity || 'MEDIUM',
               status: 'CONFIRMED',
               category: vuln.category || mapVulnTypeToCategory(vuln.type),
-              cvssScore: vuln.cvssScore || calculateCVSSFromSeverity(vuln.severity),
-              affectedComponent: vuln.url || task.input.url,
+              cvss: vuln.cvssScore || vuln.cvss || calculateCVSSFromSeverity(vuln.severity),
               remediation: vuln.remediation || getDefaultRemediation(vuln.type),
               evidence: {
+                affectedComponent: vuln.url || task.input.url,
                 type: vuln.type,
                 payload: vuln.payload,
                 request: vuln.request,
@@ -403,10 +398,10 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
             severity: 'LOW',
             status: 'CONFIRMED',
             category: 'INFO_DISCLOSURE',
-            cvssScore: 3.0,
-            affectedComponent: task.input.domain,
+            cvss: 3.0,
             remediation: 'Review all discovered subdomains. Ensure unused subdomains are removed and all active subdomains are properly secured.',
             evidence: {
+              affectedComponent: task.input.domain,
               subdomains: result.subdomains,
               techniques: task.input.techniques,
               totalFound: result.subdomains.length
@@ -427,10 +422,10 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
             severity: 'CRITICAL',
             status: 'CONFIRMED',
             category: 'EXPLOIT',
-            cvssScore: result.cvssScore || 9.0,
-            affectedComponent: task.input.target,
+            cvss: result.cvssScore || result.cvss || 9.0,
             remediation: result.remediation || 'Apply security patches immediately. Review and implement additional security controls.',
             evidence: {
+              affectedComponent: task.input.target,
               exploitType: task.input.exploit_type,
               payload: task.input.payload,
               result: result.output,
