@@ -88,8 +88,7 @@ export const scanQueue = new Queue<ScanJobData>(QUEUE_NAMES.SCANS, {
   ...defaultQueueOptions,
   defaultJobOptions: {
     ...defaultQueueOptions.defaultJobOptions,
-    attempts: 2, // Scans get 2 attempts
-    timeout: 300000 // 5 minutes timeout
+    attempts: 2 // Scans get 2 attempts
   }
 });
 
@@ -97,8 +96,7 @@ export const taskQueue = new Queue<TaskJobData>(QUEUE_NAMES.TASKS, {
   ...defaultQueueOptions,
   defaultJobOptions: {
     ...defaultQueueOptions.defaultJobOptions,
-    attempts: 3, // Tasks get 3 attempts
-    timeout: 120000 // 2 minutes timeout per task
+    attempts: 3 // Tasks get 3 attempts
   }
 });
 
@@ -106,8 +104,7 @@ export const agentQueue = new Queue<AgentJobData>(QUEUE_NAMES.AGENTS, {
   ...defaultQueueOptions,
   defaultJobOptions: {
     ...defaultQueueOptions.defaultJobOptions,
-    attempts: 2,
-    timeout: 180000 // 3 minutes timeout
+    attempts: 2
   }
 });
 
@@ -149,21 +146,21 @@ agentQueueEvents.on('failed', ({ jobId, failedReason }) => {
 
 // Helper functions
 export async function addScanJob(data: ScanJobData, priority?: number) {
-  return scanQueue.add('process-scan', data, {
+  return scanQueue.add('process-scan' as any, data, {
     priority: priority || 0,
     jobId: `scan-${data.scanId}` // Prevent duplicate jobs
   });
 }
 
 export async function addTaskJob(data: TaskJobData) {
-  return taskQueue.add('process-task', data, {
+  return taskQueue.add('process-task' as any, data, {
     priority: data.priority || 0,
     jobId: `task-${data.taskId}`
   });
 }
 
 export async function addAgentJob(data: AgentJobData, priority?: number) {
-  return agentQueue.add('process-agent', data, {
+  return agentQueue.add('process-agent' as any, data, {
     priority: priority || 0,
     jobId: `agent-${data.agentId}`
   });
