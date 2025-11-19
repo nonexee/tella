@@ -799,7 +799,7 @@ As a reporter:
 
   /**
    * Execute a task using AI reasoning with OpenAI
-   * FIXED: Timeout handling, abort controller, proper error handling, real-time audit logging
+   * MULTI-TURN ITERATIVE REASONING: AI sees results, adjusts strategy, continues until task complete
    */
   private async executeTask(task: Task): Promise<void> {
     logger.info(`Agent ${this.agent.id} executing task ${task.id}: ${task.description}`);
@@ -819,109 +819,118 @@ As a reporter:
         }
       });
 
-      // Build conversation context (limit size to prevent token overflow)
-      const recentMessages = this.memory.shortTerm.slice(-10);
+      // Build conversation context for multi-turn reasoning
       const messages: any[] = [
         { role: 'system', content: this.systemPrompt },
-        ...recentMessages.map(m => ({
-          role: m.role,
-          content: m.content
-        })),
         {
           role: 'user',
-          content: `Execute the following task:\n\nTask: ${task.description}\n\nInput: ${JSON.stringify(task.input, null, 2)}\n\nAnalyze the task, plan your approach, and execute using available tools. Be thorough and think like an attacker.`
+          content: `Execute the following task:\n\nTask: ${task.description}\n\nInput: ${JSON.stringify(task.input, null, 2)}\n\nAnalyze the task, plan your approach, and execute using available tools. You can call multiple tools and iterate based on results. Be thorough and think like an attacker.`
         }
       ];
 
-      // Call GPT-5 with rate limiting
-      const response = await this.openaiLimiter(async () => {
-        return this.openai.chat.completions.create({
-          model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
-          messages,
-          tools: this.getAvailableTools(),
-          tool_choice: 'auto',
-          temperature: 0.7,
-          max_tokens: 4000
+      const MAX_ITERATIONS = 10; // Prevent infinite loops
+      let iteration = 0;
+      let allToolResults: any[] = [];
+      let taskComplete = false;
+
+      // ITERATIVE REASONING LOOP
+      while (!taskComplete && iteration < MAX_ITERATIONS && !this.isShuttingDown()) {
+        iteration++;
+
+        // Call OpenAI with current conversation context
+        const response = await this.openaiLimiter(async () => {
+          return this.openai.chat.completions.create({
+            model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
+            messages,
+            tools: this.getAvailableTools(),
+            tool_choice: 'auto',
+            temperature: 0.7,
+            max_tokens: 4000
+          });
         });
-      });
 
-      clearTimeout(timeoutId);
+        const assistantMessage = response.choices[0].message;
 
-      const assistantMessage = response.choices[0].message;
-
-      // Log AI reasoning to audit trail (REAL AI thoughts, not fake hardcoded messages)
-      if (assistantMessage.content && this.agent.scanId) {
-        await auditAgent.reasoning(
-          this.agent.scanId,
-          this.agent.id,
-          `💭 AI Reasoning: ${task.description}`,
-          {
-            thought: assistantMessage.content,
-            taskType: task.type,
-            taskId: task.id
-          }
-        );
-      }
-
-      // Handle tool calls
-      if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-        // Log which tools the AI decided to use
-        if (this.agent.scanId) {
-          await auditAgent.decision(
+        // Log AI reasoning to audit trail (REAL thoughts showing iteration)
+        if (assistantMessage.content && this.agent.scanId) {
+          await auditAgent.reasoning(
             this.agent.scanId,
             this.agent.id,
-            `🛠️ Tool Selection`,
-            `AI decided to use: ${assistantMessage.tool_calls.map(tc => tc.function.name).join(', ')}`,
+            `◇ Thought (Iteration ${iteration})`,
             {
-              tools: assistantMessage.tool_calls.map(tc => ({
-                name: tc.function.name,
-                arguments: JSON.parse(tc.function.arguments)
-              }))
+              thought: assistantMessage.content,
+              taskType: task.type,
+              taskId: task.id,
+              iteration
             }
           );
         }
 
-        const toolResults = await this.executeToolCalls(assistantMessage.tool_calls);
-
-        // Store in memory (with size limit)
-        this.addToMemory({
+        // Add assistant message to conversation
+        messages.push({
           role: 'assistant',
-          content: assistantMessage.content || 'Executed tools',
-          timestamp: new Date(),
-          metadata: { tool_calls: assistantMessage.tool_calls.map(tc => tc.function.name) }
+          content: assistantMessage.content,
+          tool_calls: assistantMessage.tool_calls
         });
 
-        // Update task with results
-        await prisma.task.update({
-          where: { id: task.id },
-          data: {
-            status: TaskStatus.COMPLETED,
-            output: {
-              reasoning: assistantMessage.content,
-              tool_results: toolResults
-            },
-            completedAt: new Date()
-          }
-        });
-      } else {
-        // No tool calls, just reasoning
-        this.addToMemory({
-          role: 'assistant',
-          content: assistantMessage.content || 'Task analyzed',
-          timestamp: new Date()
-        });
+        // Handle tool calls
+        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+          // Execute tools and get results (with audit logging)
+          const toolResults = await this.executeToolCalls(assistantMessage.tool_calls, task.id);
+          allToolResults.push(...toolResults);
 
-        await prisma.task.update({
-          where: { id: task.id },
-          data: {
-            status: TaskStatus.COMPLETED,
-            output: {
-              reasoning: assistantMessage.content
-            },
-            completedAt: new Date()
+          // Add tool results to conversation so AI can see them and adjust
+          for (let i = 0; i < assistantMessage.tool_calls.length; i++) {
+            const toolCall = assistantMessage.tool_calls[i];
+            const result = toolResults[i];
+
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify(result, null, 2)
+            });
           }
-        });
+
+          // Store in memory
+          this.addToMemory({
+            role: 'assistant',
+            content: assistantMessage.content || `Iteration ${iteration}: Executed tools`,
+            timestamp: new Date(),
+            metadata: {
+              tool_calls: assistantMessage.tool_calls.map(tc => tc.function.name),
+              iteration
+            }
+          });
+
+          // Continue loop - AI will see results and decide next steps
+        } else {
+          // No more tool calls - AI is done
+          taskComplete = true;
+
+          this.addToMemory({
+            role: 'assistant',
+            content: assistantMessage.content || 'Task analysis complete',
+            timestamp: new Date(),
+            metadata: { iteration }
+          });
+        }
       }
+
+      clearTimeout(timeoutId);
+
+      // Update task with final results
+      await prisma.task.update({
+        where: { id: task.id },
+        data: {
+          status: TaskStatus.COMPLETED,
+          output: {
+            iterations: iteration,
+            tool_results: allToolResults,
+            conversationHistory: messages.slice(2) // Exclude system and initial user message
+          },
+          completedAt: new Date()
+        }
+      });
 
       logger.info(`Agent ${this.agent.id} completed task ${task.id}`);
 
@@ -1141,9 +1150,9 @@ As a reporter:
   }
 
   /**
-   * Execute tool calls from GPT-5
+   * Execute tool calls from OpenAI with audit logging
    */
-  private async executeToolCalls(toolCalls: any[]): Promise<any[]> {
+  private async executeToolCalls(toolCalls: any[], taskId?: string): Promise<any[]> {
     const results = [];
 
     for (const toolCall of toolCalls) {
@@ -1162,6 +1171,12 @@ As a reporter:
       }
 
       logger.info(`Agent ${this.agent.id} calling tool: ${functionName}`, args);
+
+      // Format tool call for audit log (like Hacktron: grep(filter:*.js pattern:...))
+      const argsStr = Object.entries(args)
+        .map(([key, value]) => `${key}:${value}`)
+        .join(' ');
+      const toolCallStr = argsStr ? `${functionName}(${argsStr})` : functionName;
 
       try {
         let result;
@@ -1195,7 +1210,19 @@ As a reporter:
           result
         });
 
-        // Record tool execution
+        // Log tool execution to audit trail (will show as "Tool →" in console)
+        if (this.agent.scanId && taskId) {
+          await auditTool.executed(
+            this.agent.scanId,
+            this.agent.id,
+            taskId,
+            functionName,
+            toolCallStr,
+            result
+          );
+        }
+
+        // Record tool execution in database
         await this.recordToolExecution(functionName, args, result);
 
       } catch (error: any) {
@@ -1205,6 +1232,18 @@ As a reporter:
           args,
           error: error.message
         });
+
+        // Log failed tool execution
+        if (this.agent.scanId && taskId) {
+          await auditTool.executed(
+            this.agent.scanId,
+            this.agent.id,
+            taskId,
+            functionName,
+            toolCallStr,
+            { error: error.message }
+          );
+        }
       }
     }
 

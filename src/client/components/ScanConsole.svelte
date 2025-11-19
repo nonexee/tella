@@ -156,23 +156,30 @@
     return Array.from(grouped.values());
   }
 
-  function formatThought(message: string): string {
-    return message;
+  function formatThought(log: any): string {
+    // AI thoughts are stored in data.thought field
+    if (log.data?.thought) {
+      return log.data.thought;
+    }
+    // Fallback to message field
+    return log.message || '';
   }
 
   function formatToolCall(log: any): string {
-    if (log.eventType === 'TOOL_EXECUTION' && log.data) {
-      const toolType = log.data.toolType || log.task?.type || 'unknown';
-      const params = log.data.params || {};
+    if (log.eventType === 'TOOL_EXECUTION') {
+      // The tool name and formatted command are in log.data
+      // auditTool.executed() stores: { tool, command, result }
+      if (log.data?.command) {
+        return log.data.command; // Already formatted like "port_scan(target:example.com ports:common)"
+      }
 
-      // Format like: grep(filter:*.js pattern:window\.location\.href)
-      const paramStr = Object.entries(params)
-        .map(([key, value]) => `${key}:${value}`)
-        .join(' ');
-
-      return paramStr ? `${toolType}(${paramStr})` : toolType;
+      // Fallback to old format
+      if (log.data?.tool) {
+        return log.data.tool;
+      }
     }
-    return log.title;
+
+    return log.title || 'Tool execution';
   }
 
   function getAgentNumber(agentGroup: any): number {
@@ -213,8 +220,8 @@
         <!-- Thought Process -->
         {#if log.eventType === 'AGENT_REASONING' || log.eventType === 'DECISION_MADE'}
           <div class="log-line thought">
-            <span class="thought-marker">◆ Thought:</span>
-            <span class="thought-text">{formatThought(log.message)}</span>
+            <span class="thought-marker">◇ Thought:</span>
+            <span class="thought-text">{formatThought(log)}</span>
           </div>
 
         <!-- Tool Execution -->
