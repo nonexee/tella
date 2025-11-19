@@ -46,25 +46,20 @@ export const scanWorker = new Worker<ScanJobData>(
         where: { id: scanId },
         data: {
           status: 'RUNNING',
-          startedAt: new Date()
+          startedAt: new Date(),
+          progress: 0
         }
       });
 
-      // Initialize orchestrator and run scan
+      // Initialize orchestrator and create agents + tasks
       const orchestrator = new AgentOrchestrator();
       await orchestrator.orchestrateScan(scanId);
 
-      // Update scan status to COMPLETED
-      await prisma.scan.update({
-        where: { id: scanId },
-        data: {
-          status: 'COMPLETED',
-          progress: 100,
-          completedAt: new Date()
-        }
-      });
+      // NOTE: Do NOT mark scan as COMPLETED here!
+      // The scan stays in RUNNING status until all tasks complete.
+      // The checkScanCompletion() function in task worker will mark it COMPLETED.
 
-      logger.info(`Scan ${scanId} completed successfully`);
+      logger.info(`Scan ${scanId} orchestration complete - agents and tasks created`);
 
       return { success: true, scanId };
 
