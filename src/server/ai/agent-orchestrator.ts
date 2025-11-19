@@ -268,6 +268,33 @@ export class AgentOrchestrator extends EventEmitter {
 
     logger.info(`Starting orchestration for scan: ${scanId}`);
 
+    // Log orchestration planning
+    await auditAgent.reasoning(
+      scanId,
+      'system',
+      `🎯 Planning security scan for target: ${scan.target.name} (${scan.target.url})`,
+      {
+        targetType: scan.target.type,
+        scanConfig: scan.config,
+        strategy: 'multi-agent-collaborative'
+      }
+    );
+
+    await auditAgent.decision(
+      scanId,
+      'system',
+      '🤖 Agent Team Composition',
+      `Deploying 4 specialized AI agents:
+      1. ORCHESTRATOR - Main coordinator to manage scan workflow
+      2. RECON - Reconnaissance specialist for information gathering
+      3. SCANNER - Vulnerability scanner for security analysis
+      4. EXPLOITER - Exploitation specialist for vulnerability verification`,
+      {
+        agentCount: 4,
+        specializations: ['orchestration', 'reconnaissance', 'scanning', 'exploitation']
+      }
+    );
+
     try {
       // Create specialized agents based on scan configuration
       const agents = await Promise.all([
@@ -319,6 +346,19 @@ export class AgentOrchestrator extends EventEmitter {
       const urlObj = new URL(target.url);
       const domain = urlObj.hostname;
 
+      // Log task planning strategy
+      await auditAgent.reasoning(
+        scanId,
+        reconAgent?.id || 'system',
+        `📋 Planning reconnaissance phase for ${domain}`,
+        {
+          phase: 'reconnaissance',
+          target: domain,
+          tasksPanned: ['port_scan', 'subdomain_enumeration'],
+          reasoning: 'Starting with network reconnaissance to map attack surface before vulnerability scanning'
+        }
+      );
+
       if (reconAgent) {
         // Task 1: Port Scan
         await this.createTask({
@@ -348,6 +388,19 @@ export class AgentOrchestrator extends EventEmitter {
         });
       }
 
+      // Log vulnerability scanning strategy
+      await auditAgent.reasoning(
+        scanId,
+        scannerAgent?.id || 'system',
+        `🔍 Planning vulnerability scanning phase`,
+        {
+          phase: 'vulnerability_scanning',
+          target: target.url,
+          scanTypes: ['xss', 'sqli', 'csrf', 'ssrf'],
+          reasoning: 'Executing comprehensive web application security scan targeting OWASP Top 10 vulnerabilities'
+        }
+      );
+
       if (scannerAgent) {
         // Task 3: Web Application Scan
         await this.createTask({
@@ -363,6 +416,18 @@ export class AgentOrchestrator extends EventEmitter {
           priority: 9
         });
       }
+
+      await auditAgent.decision(
+        scanId,
+        'system',
+        '✅ Scan Orchestration Complete',
+        `Successfully planned and queued all security testing tasks. Agents will now execute tasks in priority order.`,
+        {
+          totalTasks: reconAgent && scannerAgent ? 3 : (reconAgent || scannerAgent ? 2 : 0),
+          executionModel: 'BullMQ distributed task queue',
+          status: 'ready'
+        }
+      );
 
       logger.info(`Created initial task set for scan ${scanId}`);
       this.emit('scan:orchestration:started', { scanId });
