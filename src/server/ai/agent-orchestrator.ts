@@ -290,26 +290,74 @@ export class AgentOrchestrator extends EventEmitter {
         })
       ]);
 
-      // Start all agents
-      await Promise.all(agents.map(agent => this.startAgent(agent.id)));
+      // NOTE: Agents are created but not started with polling loops
+      // Task execution is now handled by BullMQ workers, not AgentRunner polling
+      // Update all agents to IDLE status (ready to execute tasks via BullMQ)
+      await Promise.all(agents.map(agent =>
+        prisma.agent.update({
+          where: { id: agent.id },
+          data: { status: AgentStatus.IDLE }
+        })
+      ));
 
-      // Create initial reconnaissance task
+      // Create comprehensive initial task set
+      // Since we're using BullMQ workers instead of AgentRunner polling,
+      // we need to create all tasks upfront instead of having AI dynamically create them
+
       const reconAgent = agents.find(a => a.type === AgentType.RECON);
+      const scannerAgent = agents.find(a => a.type === AgentType.SCANNER);
+      const target = scan.target;
+
+      // Extract domain from URL for subdomain enumeration
+      const urlObj = new URL(target.url);
+      const domain = urlObj.hostname;
+
       if (reconAgent) {
+        // Task 1: Port Scan
         await this.createTask({
           agentId: reconAgent.id,
           scanId,
-          type: 'RECON',
-          description: `Perform reconnaissance on ${scan.target.url}`,
+          type: 'PORT_SCAN',
+          description: `Scan ${target.name} for open ports`,
           input: {
-            target: scan.target.url,
-            targetType: scan.target.type,
-            depth: 'comprehensive'
+            target: domain,
+            ports: 'common', // Scan common ports
+            technique: 'connect'
           },
           priority: 10
         });
+
+        // Task 2: Subdomain Enumeration
+        await this.createTask({
+          agentId: reconAgent.id,
+          scanId,
+          type: 'SUBDOMAIN_ENUM',
+          description: `Enumerate subdomains for ${domain}`,
+          input: {
+            domain: domain,
+            techniques: ['dns', 'certificate']
+          },
+          priority: 8
+        });
       }
 
+      if (scannerAgent) {
+        // Task 3: Web Application Scan
+        await this.createTask({
+          agentId: scannerAgent.id,
+          scanId,
+          type: 'WEB_SCAN',
+          description: `Scan ${target.url} for web vulnerabilities`,
+          input: {
+            url: target.url,
+            scan_types: ['xss', 'sqli', 'csrf', 'ssrf'],
+            depth: 2
+          },
+          priority: 9
+        });
+      }
+
+      logger.info(`Created initial task set for scan ${scanId}`);
       this.emit('scan:orchestration:started', { scanId });
     } catch (error) {
       logger.error(`Failed to orchestrate scan ${scanId}:`, error);
@@ -343,10 +391,29 @@ export class AgentOrchestrator extends EventEmitter {
       }
     });
 
-    // Notify agent runner
-    const runner = this.activeAgents.get(params.agentId);
-    if (runner) {
-      runner.notifyNewTask();
+    // Add task to BullMQ queue for execution by workers
+    try {
+      const { addTaskJob } = await import('../queue/scan-queue.js');
+      await addTaskJob({
+        taskId: task.id,
+        scanId: params.scanId,
+        agentId: params.agentId,
+        type: params.type,
+        description: params.description,
+        input: params.input,
+        priority: params.priority || 5
+      });
+      logger.info(`Task ${task.id} queued for execution`);
+    } catch (error: any) {
+      logger.error(`Failed to queue task ${task.id}:`, error);
+      // Mark task as failed if we can't queue it
+      await prisma.task.update({
+        where: { id: task.id },
+        data: {
+          status: TaskStatus.FAILED,
+          error: `Failed to queue task: ${error.message}`
+        }
+      });
     }
 
     this.emit('task:created', { taskId: task.id, agentId: params.agentId });

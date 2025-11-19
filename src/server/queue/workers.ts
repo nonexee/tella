@@ -146,7 +146,13 @@ export const taskWorker = new Worker<TaskJobData>(
         }
       });
 
+      // Create findings from task results
+      await createFindingsFromTaskResult(task, result);
+
       logger.debug(`Task ${taskId} completed successfully`);
+
+      // Check if all tasks for this scan are completed
+      await checkScanCompletion(scanId);
 
       return { success: true, taskId, result };
 
@@ -302,6 +308,253 @@ async function executeTask(task: any): Promise<any> {
     logger.error(`Error executing task ${task.id}:`, error);
     throw error;
   }
+}
+
+/**
+ * Create findings from task execution results
+ */
+async function createFindingsFromTaskResult(task: any, result: any): Promise<void> {
+  try {
+    const { v4: uuidv4 } = await import('uuid');
+
+    // Get scan and target info
+    const scan = await prisma.scan.findUnique({
+      where: { id: task.scanId },
+      include: { target: true }
+    });
+
+    if (!scan) {
+      logger.warn(`Scan ${task.scanId} not found for finding creation`);
+      return;
+    }
+
+    // Extract findings based on task type and results
+    const findings: any[] = [];
+
+    switch (task.type) {
+      case 'PORT_SCAN':
+        // Create informational finding for open ports
+        if (result.openPorts && result.openPorts.length > 0) {
+          const criticalPorts = result.openPorts.filter((p: any) =>
+            [21, 23, 139, 445, 3389].includes(p.port)
+          );
+
+          if (criticalPorts.length > 0) {
+            findings.push({
+              id: uuidv4(),
+              scanId: task.scanId,
+              targetId: scan.targetId,
+              title: 'Potentially Vulnerable Ports Detected',
+              description: `Found ${criticalPorts.length} potentially vulnerable ports open: ${criticalPorts.map((p: any) => `${p.port}/${p.protocol} (${p.service})`).join(', ')}`,
+              severity: 'MEDIUM',
+              status: 'CONFIRMED',
+              category: 'MISCONFIGURATION',
+              cvssScore: 5.0,
+              affectedComponent: task.input.target,
+              remediation: 'Review if these services are required. Disable unnecessary services and ensure proper authentication and encryption.',
+              evidence: {
+                openPorts: criticalPorts,
+                scanType: result.scanType,
+                totalPorts: result.openPorts.length
+              }
+            });
+          }
+        }
+        break;
+
+      case 'WEB_SCAN':
+        // Create findings for detected vulnerabilities
+        if (result.vulnerabilities && result.vulnerabilities.length > 0) {
+          for (const vuln of result.vulnerabilities) {
+            findings.push({
+              id: uuidv4(),
+              scanId: task.scanId,
+              targetId: scan.targetId,
+              title: vuln.title || `${vuln.type} Vulnerability Detected`,
+              description: vuln.description || `A ${vuln.type} vulnerability was detected during web application scanning.`,
+              severity: vuln.severity || 'MEDIUM',
+              status: 'CONFIRMED',
+              category: vuln.category || mapVulnTypeToCategory(vuln.type),
+              cvssScore: vuln.cvssScore || calculateCVSSFromSeverity(vuln.severity),
+              affectedComponent: vuln.url || task.input.url,
+              remediation: vuln.remediation || getDefaultRemediation(vuln.type),
+              evidence: {
+                type: vuln.type,
+                payload: vuln.payload,
+                request: vuln.request,
+                response: vuln.response,
+                location: vuln.location
+              },
+              references: vuln.references || []
+            });
+          }
+        }
+        break;
+
+      case 'SUBDOMAIN_ENUM':
+        // Create informational finding for discovered subdomains
+        if (result.subdomains && result.subdomains.length > 0) {
+          findings.push({
+            id: uuidv4(),
+            scanId: task.scanId,
+            targetId: scan.targetId,
+            title: 'Subdomains Discovered',
+            description: `Discovered ${result.subdomains.length} subdomains for ${task.input.domain}. Review for potential attack surface expansion.`,
+            severity: 'LOW',
+            status: 'CONFIRMED',
+            category: 'INFO_DISCLOSURE',
+            cvssScore: 3.0,
+            affectedComponent: task.input.domain,
+            remediation: 'Review all discovered subdomains. Ensure unused subdomains are removed and all active subdomains are properly secured.',
+            evidence: {
+              subdomains: result.subdomains,
+              techniques: task.input.techniques,
+              totalFound: result.subdomains.length
+            }
+          });
+        }
+        break;
+
+      case 'EXPLOIT':
+        // Create finding if exploit was successful
+        if (result.success) {
+          findings.push({
+            id: uuidv4(),
+            scanId: task.scanId,
+            targetId: scan.targetId,
+            title: `Exploitable ${task.input.exploit_type} Vulnerability`,
+            description: result.description || `Successfully exploited ${task.input.exploit_type} vulnerability.`,
+            severity: 'CRITICAL',
+            status: 'CONFIRMED',
+            category: 'EXPLOIT',
+            cvssScore: result.cvssScore || 9.0,
+            affectedComponent: task.input.target,
+            remediation: result.remediation || 'Apply security patches immediately. Review and implement additional security controls.',
+            evidence: {
+              exploitType: task.input.exploit_type,
+              payload: task.input.payload,
+              result: result.output,
+              safeMode: task.input.safe_mode
+            }
+          });
+        }
+        break;
+    }
+
+    // Insert findings into database
+    if (findings.length > 0) {
+      await prisma.finding.createMany({
+        data: findings
+      });
+      logger.info(`Created ${findings.length} findings from task ${task.id}`);
+    }
+
+  } catch (error: any) {
+    logger.error(`Error creating findings from task ${task.id}:`, error);
+    // Don't throw - findings creation failure shouldn't fail the task
+  }
+}
+
+/**
+ * Check if all tasks for a scan are completed and update scan status
+ */
+async function checkScanCompletion(scanId: string): Promise<void> {
+  try {
+    // Get all tasks for this scan
+    const tasks = await prisma.task.findMany({
+      where: { scanId },
+      select: { status: true }
+    });
+
+    if (tasks.length === 0) {
+      logger.warn(`No tasks found for scan ${scanId}`);
+      return;
+    }
+
+    // Check if all tasks are in terminal states (COMPLETED, FAILED, CANCELLED)
+    const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'];
+    const allTasksComplete = tasks.every(task =>
+      terminalStatuses.includes(task.status)
+    );
+
+    if (allTasksComplete) {
+      const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
+      const failedTasks = tasks.filter(t => t.status === 'FAILED').length;
+
+      logger.info(`All tasks completed for scan ${scanId}. Completed: ${completedTasks}, Failed: ${failedTasks}`);
+
+      // Update scan status - mark as completed even if some tasks failed
+      // The scan worker will handle this, but we update progress here
+      await prisma.scan.update({
+        where: { id: scanId },
+        data: {
+          progress: 100,
+          completedAt: new Date(),
+          status: failedTasks === tasks.length ? 'FAILED' : 'COMPLETED'
+        }
+      });
+
+      logger.info(`Scan ${scanId} marked as complete`);
+    } else {
+      // Calculate progress based on completed tasks
+      const completedCount = tasks.filter(t =>
+        terminalStatuses.includes(t.status)
+      ).length;
+      const progress = Math.round((completedCount / tasks.length) * 100);
+
+      await prisma.scan.update({
+        where: { id: scanId },
+        data: { progress }
+      });
+
+      logger.debug(`Scan ${scanId} progress: ${progress}% (${completedCount}/${tasks.length} tasks completed)`);
+    }
+
+  } catch (error: any) {
+    logger.error(`Error checking scan completion for ${scanId}:`, error);
+    // Don't throw - scan completion check failure shouldn't fail the task
+  }
+}
+
+/**
+ * Helper functions for finding creation
+ */
+function mapVulnTypeToCategory(type: string): string {
+  const mapping: Record<string, string> = {
+    'xss': 'XSS',
+    'sqli': 'INJECTION',
+    'sql_injection': 'INJECTION',
+    'csrf': 'CSRF',
+    'ssrf': 'SSRF',
+    'lfi': 'PATH_TRAVERSAL',
+    'rfi': 'PATH_TRAVERSAL',
+    'rce': 'RCE',
+    'xxe': 'XXE'
+  };
+  return mapping[type.toLowerCase()] || 'MISCONFIGURATION';
+}
+
+function calculateCVSSFromSeverity(severity?: string): number {
+  const mapping: Record<string, number> = {
+    'CRITICAL': 9.0,
+    'HIGH': 7.5,
+    'MEDIUM': 5.0,
+    'LOW': 3.0,
+    'INFO': 1.0
+  };
+  return mapping[severity?.toUpperCase() || 'MEDIUM'] || 5.0;
+}
+
+function getDefaultRemediation(vulnType: string): string {
+  const remediations: Record<string, string> = {
+    'xss': 'Implement proper input validation and output encoding. Use Content Security Policy headers.',
+    'sqli': 'Use parameterized queries or prepared statements. Never concatenate user input into SQL queries.',
+    'csrf': 'Implement anti-CSRF tokens for all state-changing operations.',
+    'ssrf': 'Validate and sanitize all URLs. Implement allowlists for allowed domains and protocols.',
+    'lfi': 'Validate file paths against an allowlist. Never allow user input directly in file operations.',
+    'rce': 'Never execute user input as code. Implement strict input validation and sandboxing.'
+  };
+  return remediations[vulnType.toLowerCase()] || 'Review the vulnerability and apply appropriate security controls.';
 }
 
 // Worker event handlers
