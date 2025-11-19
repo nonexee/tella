@@ -108,7 +108,7 @@ export const auditAgent = {
       scanId,
       agentId,
       eventType: 'AGENT_REASONING',
-      severity: 'DEBUG',
+      severity: 'INFO', // Changed from DEBUG to INFO so thoughts are always visible
       title: 'Agent Reasoning',
       message: reasoning,
       data
