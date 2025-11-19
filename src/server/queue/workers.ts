@@ -164,6 +164,9 @@ export const taskWorker = new Worker<TaskJobData>(
         }
       });
 
+      // Check if all tasks for this scan are completed (even if this one failed)
+      await checkScanCompletion(scanId);
+
       throw error;
     }
   },
@@ -455,6 +458,24 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
  */
 async function checkScanCompletion(scanId: string): Promise<void> {
   try {
+    // Get current scan status
+    const scan = await prisma.scan.findUnique({
+      where: { id: scanId },
+      select: { status: true }
+    });
+
+    if (!scan) {
+      logger.warn(`Scan ${scanId} not found`);
+      return;
+    }
+
+    // Don't update if scan is already in a terminal state (FAILED, COMPLETED, CANCELLED)
+    // This prevents overwriting FAILED status from orchestration errors
+    if (['FAILED', 'COMPLETED', 'CANCELLED'].includes(scan.status)) {
+      logger.debug(`Scan ${scanId} already in terminal state: ${scan.status}, skipping completion check`);
+      return;
+    }
+
     // Get all tasks for this scan
     const tasks = await prisma.task.findMany({
       where: { scanId },
