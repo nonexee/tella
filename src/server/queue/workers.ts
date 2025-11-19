@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
 import { auditScan, auditTask, auditTool, auditFinding } from '../utils/audit-logger.js';
-import { AgentOrchestrator } from '../ai/agent-orchestrator.js';
+import { AgentOrchestrator, AgentRunner } from '../ai/agent-orchestrator.js';
 import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
 import { QUEUE_NAMES } from './scan-queue.js';
 
@@ -138,11 +138,13 @@ export const taskWorker = new Worker<TaskJobData>(
       // Audit log: Task started
       await auditTask.started(scanId, agentId, taskId, type);
 
-      // Execute task based on type
-      const result = await executeTask(task);
-
-      // Audit log: Tool execution details
-      await auditTool.executed(scanId, agentId, taskId, type, description, result);
+      // Execute task with REAL AI reasoning (not direct tool calls!)
+      // This uses the AgentRunner.executeTaskWithAI() method which:
+      // 1. Calls OpenAI to analyze the task
+      // 2. Lets AI decide which tools to use
+      // 3. AI can iterate and adjust based on results
+      // 4. Logs REAL AI thoughts to audit trail
+      const result = await AgentRunner.executeTaskWithAI(taskId);
 
       // Update task status to COMPLETED
       await prisma.task.update({
@@ -278,54 +280,20 @@ export const agentWorker = new Worker<AgentJobData>(
 );
 
 /**
- * Execute a task based on its type
+ * OLD IMPLEMENTATION - Direct tool calls without AI reasoning
+ * This has been replaced by AgentRunner.executeTaskWithAI() which provides:
+ * - Real AI reasoning and decision making
+ * - Iterative problem solving
+ * - Tool selection based on context
+ * - Real-time thought logging
+ *
+ * Keeping this function commented for reference, but it should NOT be used.
  */
-async function executeTask(task: any): Promise<any> {
-  const { SecurityTools } = await import('../tools/security-tools.js');
-  const tools = new SecurityTools();
-
-  // Parse input
-  const input = task.input as any;
-
-  try {
-    switch (task.type) {
-      case 'PORT_SCAN':
-        return await tools.portScan({
-          target: input.target,
-          ports: input.ports,
-          technique: input.technique
-        });
-
-      case 'VULN_SCAN':
-        return await tools.webScan({
-          url: input.url,
-          scan_types: input.scan_types,
-          depth: input.depth
-        });
-
-      case 'ENUMERATE':
-        return await tools.subdomainEnum({
-          domain: input.domain,
-          techniques: input.techniques
-        });
-
-      case 'EXPLOIT':
-        return await tools.exploitTest({
-          target: input.target,
-          exploit_type: input.exploit_type,
-          payload: input.payload,
-          safe_mode: input.safe_mode
-        });
-
-      default:
-        logger.warn(`Unknown task type: ${task.type}`);
-        return { message: `Task type ${task.type} not implemented` };
-    }
-  } catch (error: any) {
-    logger.error(`Error executing task ${task.id}:`, error);
-    throw error;
-  }
-}
+// async function executeTask(task: any): Promise<any> {
+//   const { SecurityTools } = await import('../tools/security-tools.js');
+//   const tools = new SecurityTools();
+//   // ... direct tool calls without AI
+// }
 
 /**
  * Create findings from task execution results
