@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   let targets: any[] = [];
   let showNewTargetModal = false;
+  let showStartScanModal = false;
+  let selectedTargetForScan: any = null;
   let loading = true;
+  let startingScan = false;
 
   // New target form data
   let newTarget = {
@@ -11,6 +16,16 @@
     url: '',
     type: 'WEB_APP',
     description: ''
+  };
+
+  // New scan form data for quick start
+  let newScan = {
+    name: '',
+    config: {
+      maxDepth: 3,
+      timeout: 300000,
+      aggressive: false
+    }
   };
 
   const targetTypes = [
@@ -129,6 +144,96 @@
     };
     return colors[status] || 'secondary';
   }
+
+  function openStartScanModal(target: any) {
+    selectedTargetForScan = target;
+    newScan.name = `${target.name} - Security Scan ${new Date().toISOString().split('T')[0]}`;
+    showStartScanModal = true;
+  }
+
+  async function startScanForTarget() {
+    if (!selectedTargetForScan) return;
+
+    startingScan = true;
+    try {
+      const token = localStorage.getItem('token');
+
+      // Step 1: Create the scan
+      const createResponse = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation CreateScan($name: String!, $targetId: ID!, $config: JSON!) {
+              createScan(name: $name, targetId: $targetId, config: $config) {
+                id
+                name
+                status
+              }
+            }
+          `,
+          variables: {
+            name: newScan.name,
+            targetId: selectedTargetForScan.id,
+            config: newScan.config
+          }
+        })
+      });
+
+      const createResult = await createResponse.json();
+
+      if (createResult.data?.createScan) {
+        const scanId = createResult.data.createScan.id;
+
+        // Step 2: Immediately start the scan
+        const startResponse = await fetch('/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            query: `
+              mutation StartScan($id: ID!) {
+                startScan(id: $id) {
+                  id
+                  status
+                }
+              }
+            `,
+            variables: { id: scanId }
+          })
+        });
+
+        const startResult = await startResponse.json();
+
+        if (startResult.data?.startScan) {
+          // Close modal and navigate to scan console
+          showStartScanModal = false;
+          selectedTargetForScan = null;
+          newScan = { name: '', config: { maxDepth: 3, timeout: 300000, aggressive: false } };
+
+          // Navigate to scan console with the new scan ID
+          dispatch('navigate', { view: 'scan-console', scanId });
+        } else if (startResult.errors) {
+          console.error('Failed to start scan:', startResult.errors);
+          alert('Scan created but failed to start: ' + startResult.errors[0].message);
+        }
+      } else if (createResult.errors) {
+        const error = createResult.errors[0];
+        console.error('GraphQL error:', error);
+        alert('Error creating scan: ' + error.message);
+      }
+    } catch (err) {
+      console.error('Failed to start scan:', err);
+      alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to start scan'));
+    } finally {
+      startingScan = false;
+    }
+  }
 </script>
 
 <div class="targets-page">
@@ -185,6 +290,16 @@
               <span class="stat-label">Scans</span>
               <span class="stat-value">{target.scans.length}</span>
             </div>
+          </div>
+
+          <div class="target-actions">
+            <button
+              class="btn btn-primary btn-start-scan"
+              on:click|stopPropagation={() => openStartScanModal(target)}
+            >
+              <span>🚀</span>
+              Start Scan
+            </button>
           </div>
         </div>
       {/each}
@@ -257,6 +372,91 @@
           </button>
           <button type="submit" class="btn btn-primary">
             Add Target
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if showStartScanModal}
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && (showStartScanModal = false)}
+    on:keydown={(e) => e.key === 'Escape' && (showStartScanModal = false)}
+  >
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="modal-header">
+        <h2>🚀 Start Security Scan</h2>
+        <button class="close-btn" on:click={() => showStartScanModal = false}>×</button>
+      </div>
+
+      <form on:submit|preventDefault={startScanForTarget}>
+        <div class="target-info-box">
+          <div class="info-label">Target:</div>
+          <div class="info-value">
+            <strong>{selectedTargetForScan?.name}</strong>
+            <div class="info-url">{selectedTargetForScan?.url}</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="scan-name">Scan Name</label>
+          <input
+            id="scan-name"
+            type="text"
+            bind:value={newScan.name}
+            placeholder="e.g., Weekly Security Audit"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="max-depth">Max Crawl Depth</label>
+          <input
+            id="max-depth"
+            type="number"
+            bind:value={newScan.config.maxDepth}
+            min="1"
+            max="10"
+          />
+          <p class="help-text">How many levels deep to crawl the site (1-10)</p>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" bind:checked={newScan.config.aggressive} />
+            Enable Aggressive Testing
+          </label>
+          <p class="help-text">May generate more load on the target</p>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            on:click={() => showStartScanModal = false}
+            disabled={startingScan}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            disabled={startingScan}
+          >
+            {#if startingScan}
+              <span class="spinner-small"></span>
+              Starting...
+            {:else}
+              <span>🚀</span>
+              Start Scan
+            {/if}
           </button>
         </div>
       </form>
@@ -494,5 +694,68 @@
     border-top-color: var(--primary);
     border-radius: 50%;
     margin-bottom: 1rem;
+  }
+
+  .target-actions {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn-start-scan {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+  }
+
+  .btn-start-scan span {
+    font-size: 1.25rem;
+  }
+
+  .target-info-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .info-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .info-value strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .info-url {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .spinner-small {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>

@@ -7,6 +7,7 @@
   import Agents from './components/Agents.svelte';
   import Tools from './components/Tools.svelte';
   import Console from './components/Console.svelte';
+  import ScanConsole from './components/ScanConsole.svelte';
   import Settings from './components/Settings.svelte';
   import Login from './components/Login.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -14,14 +15,21 @@
   import { authStore } from './stores/auth';
 
   let currentView = 'dashboard';
+  let currentScanId: string | null = null;
   let isAuthenticated = false;
 
   authStore.subscribe(state => {
     isAuthenticated = state.isAuthenticated;
   });
 
-  function handleViewChange(event: CustomEvent<string>) {
-    currentView = event.detail;
+  function handleViewChange(event: CustomEvent<string | {view: string, scanId?: string}>) {
+    if (typeof event.detail === 'string') {
+      currentView = event.detail;
+      currentScanId = null;
+    } else {
+      currentView = event.detail.view;
+      currentScanId = event.detail.scanId || null;
+    }
   }
 </script>
 
@@ -36,9 +44,9 @@
           {#if currentView === 'dashboard'}
             <Dashboard on:navigate={handleViewChange} />
           {:else if currentView === 'scans'}
-            <Scans />
+            <Scans on:navigate={handleViewChange} />
           {:else if currentView === 'targets'}
-            <Targets />
+            <Targets on:navigate={handleViewChange} />
           {:else if currentView === 'findings'}
             <Findings />
           {:else if currentView === 'agents'}
@@ -47,6 +55,8 @@
             <Tools />
           {:else if currentView === 'console'}
             <Console />
+          {:else if currentView === 'scan-console' && currentScanId}
+            <ScanConsole scanId={currentScanId} />
           {:else if currentView === 'settings'}
             <Settings />
           {/if}

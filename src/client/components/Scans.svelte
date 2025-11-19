@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   let scans: any[] = [];
   let showNewScanModal = false;
@@ -340,6 +342,11 @@
     return colors[status] || 'secondary';
   }
 
+  function viewScanConsole(scan: any) {
+    // Navigate to the live scan console for real-time monitoring
+    dispatch('navigate', { view: 'scan-console', scanId: scan.id });
+  }
+
   async function openScanDetails(scan: any) {
     selectedScan = scan;
     showScanDetailModal = true;
@@ -509,8 +516,8 @@
           class="scan-card fade-in"
           role="button"
           tabindex="0"
-          on:click={() => openScanDetails(scan)}
-          on:keydown={(e) => e.key === 'Enter' && openScanDetails(scan)}
+          on:click={() => viewScanConsole(scan)}
+          on:keydown={(e) => e.key === 'Enter' && viewScanConsole(scan)}
         >
           <div class="scan-header">
             <div>
@@ -555,6 +562,14 @@
           </div>
 
           <div class="scan-actions" role="group">
+            <button
+              class="btn btn-sm btn-console"
+              on:click|stopPropagation={() => viewScanConsole(scan)}
+              title="View live execution console"
+            >
+              <span>📟</span>
+              Console
+            </button>
             {#if scan.status === 'QUEUED'}
               <button class="btn btn-sm btn-primary" on:click|stopPropagation={() => startScan(scan.id)}>
                 Start Scan
@@ -572,6 +587,14 @@
               </button>
               <button class="btn btn-sm btn-danger" on:click|stopPropagation={() => stopScan(scan.id)}>
                 Stop
+              </button>
+            {:else if scan.status === 'COMPLETED' || scan.status === 'FAILED'}
+              <button
+                class="btn btn-sm btn-secondary"
+                on:click|stopPropagation={() => openScanDetails(scan)}
+              >
+                <span>📊</span>
+                Details
               </button>
             {/if}
           </div>
@@ -935,12 +958,29 @@
     gap: 0.75rem;
     justify-content: flex-end;
     padding: 1rem 0;
+    flex-wrap: wrap;
   }
 
   .scan-actions .btn-sm {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     border-radius: 0.375rem;
+  }
+
+  .btn-console {
+    background: #0dcaf0;
+    color: #000;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .btn-console:hover {
+    background: #31d2f2;
+  }
+
+  .btn-console span {
+    font-size: 1rem;
   }
 
   .scan-footer {
