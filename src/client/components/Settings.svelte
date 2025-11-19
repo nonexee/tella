@@ -204,15 +204,27 @@
             <span class="required">*</span>
           </label>
           <div class="input-with-toggle">
-            <input
-              id="openai-key"
-              type={showKey ? 'text' : 'password'}
-              bind:value={openaiApiKey}
-              on:input={clearSaveMessage}
-              on:input={clearTestResult}
-              placeholder={hasExistingKey ? 'Enter new API key to update...' : 'sk-...'}
-              class="input-field"
-            />
+            {#if showKey}
+              <input
+                id="openai-key"
+                type="text"
+                bind:value={openaiApiKey}
+                on:input={clearSaveMessage}
+                on:input={clearTestResult}
+                placeholder={hasExistingKey ? 'Enter new API key to update...' : 'sk-...'}
+                class="input-field"
+              />
+            {:else}
+              <input
+                id="openai-key"
+                type="password"
+                bind:value={openaiApiKey}
+                on:input={clearSaveMessage}
+                on:input={clearTestResult}
+                placeholder={hasExistingKey ? 'Enter new API key to update...' : 'sk-...'}
+                class="input-field"
+              />
+            {/if}
             <button
               type="button"
               class="btn btn-icon"
