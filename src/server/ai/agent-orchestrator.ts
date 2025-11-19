@@ -651,8 +651,23 @@ export class AgentRunner {
                         !process.env.OPENAI_API_KEY.includes('your-openai');
 
     if (!hasValidKey) {
-      throw new Error('Cannot execute AI task: OPENAI_API_KEY not configured');
+      const error = 'Cannot execute AI task: OPENAI_API_KEY not configured. Set OPENAI_API_KEY environment variable.';
+      logger.error(error);
+
+      // Update task to failed
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          status: TaskStatus.FAILED,
+          error,
+          completedAt: new Date()
+        }
+      });
+
+      throw new Error(error);
     }
+
+    logger.info(`🤖 Starting AI reasoning for task ${taskId}: ${task.description}`);
 
     // Create OpenAI client and tools
     const openai = new OpenAI({
@@ -673,8 +688,12 @@ export class AgentRunner {
       () => false // Not shutting down
     );
 
+    logger.info(`🧠 Calling OpenAI for multi-turn iterative reasoning...`);
+
     // Execute the task with AI reasoning
     await runner.executeTask(task);
+
+    logger.info(`✅ AI reasoning completed for task ${taskId}`);
 
     // Return the updated task
     const updatedTask = await prisma.task.findUnique({

@@ -144,19 +144,11 @@ export const taskWorker = new Worker<TaskJobData>(
       // 2. Lets AI decide which tools to use
       // 3. AI can iterate and adjust based on results
       // 4. Logs REAL AI thoughts to audit trail
+      // NOTE: AgentRunner handles task status updates internally,
+      //       so we don't need to update it here
       const result = await AgentRunner.executeTaskWithAI(taskId);
 
-      // Update task status to COMPLETED
-      await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          status: 'COMPLETED',
-          output: result,
-          completedAt: new Date()
-        }
-      });
-
-      // Audit log: Task completed
+      // Audit log: Task completed (AI already updated task status)
       await auditTask.completed(scanId, agentId, taskId, type, result);
 
       // Create findings from task results
