@@ -7,7 +7,7 @@
 
 import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
-import { prisma } from '../db/client.js';
+import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
 import { AgentOrchestrator } from '../ai/agent-orchestrator.js';
 import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
@@ -51,7 +51,7 @@ export const scanWorker = new Worker<ScanJobData>(
       });
 
       // Initialize orchestrator and run scan
-      const orchestrator = AgentOrchestrator.getInstance();
+      const orchestrator = new AgentOrchestrator();
       await orchestrator.orchestrateScan(scanId);
 
       // Update scan status to COMPLETED
@@ -287,7 +287,7 @@ async function executeTask(task: any): Promise<any> {
         });
 
       case 'SUBDOMAIN_ENUM':
-        return await tools.subdomainEnumeration({
+        return await tools.subdomainEnum({
           domain: input.domain,
           techniques: input.techniques
         });
