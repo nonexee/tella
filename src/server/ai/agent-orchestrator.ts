@@ -20,6 +20,7 @@ import { Agent, AgentType, AgentStatus, Task, TaskStatus, PrismaClient } from '@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger.js';
+import { auditAgent, auditTask } from '../utils/audit-logger.js';
 import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
 import { sanitizeError } from '../utils/security.js';
@@ -171,6 +172,12 @@ export class AgentOrchestrator extends EventEmitter {
     });
 
     logger.info(`Created agent: ${agent.id} (${agent.type})`);
+
+    // Audit log: Agent created
+    if (params.scanId) {
+      await auditAgent.created(params.scanId, agent.id, agent.type, agent.role);
+    }
+
     return agent;
   }
 
@@ -418,6 +425,9 @@ export class AgentOrchestrator extends EventEmitter {
 
     this.emit('task:created', { taskId: task.id, agentId: params.agentId });
     logger.info(`Created task ${task.id} for agent ${params.agentId}`);
+
+    // Audit log: Task created
+    await auditTask.created(params.scanId, params.agentId, task.id, params.type, params.description);
 
     return task;
   }

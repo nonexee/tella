@@ -632,6 +632,73 @@ export const resolvers = {
       });
     },
 
+    auditLogs: async (
+      _parent: unknown,
+      args: {
+        scanId?: string;
+        agentId?: string;
+        taskId?: string;
+        eventType?: string;
+        severity?: string;
+      },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      const where: any = {};
+      if (args.scanId) where.scanId = args.scanId;
+      if (args.agentId) where.agentId = args.agentId;
+      if (args.taskId) where.taskId = args.taskId;
+      if (args.eventType) where.eventType = args.eventType;
+      if (args.severity) where.severity = args.severity;
+
+      return prisma.auditLog.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        take: 1000, // Limit to last 1000 logs
+        include: {
+          scan: {
+            select: {
+              id: true,
+              name: true,
+              status: true
+            }
+          },
+          agent: {
+            select: {
+              id: true,
+              name: true,
+              type: true
+            }
+          },
+          task: {
+            select: {
+              id: true,
+              type: true,
+              description: true
+            }
+          }
+        }
+      });
+    },
+
+    auditLog: async (
+      _parent: unknown,
+      args: { id: string },
+      context: Context
+    ) => {
+      requireAuth(context);
+
+      return prisma.auditLog.findUnique({
+        where: { id: args.id },
+        include: {
+          scan: true,
+          agent: true,
+          task: true
+        }
+      });
+    },
+
     exportScanReport: async (
       _parent: unknown,
       args: { scanId: string; format?: string },
