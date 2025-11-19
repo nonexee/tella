@@ -429,6 +429,51 @@
     selectedScan = null;
     scanDetails = null;
   }
+
+  async function exportReport(scanId: string) {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            query ExportScanReport($scanId: ID!) {
+              exportScanReport(scanId: $scanId, format: JSON)
+            }
+          `,
+          variables: { scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.exportScanReport) {
+        const report = result.data.exportScanReport;
+
+        // Create downloadable JSON file
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `scan-report-${scanId}-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        console.log('Report exported successfully');
+      } else {
+        console.error('Failed to export report:', result.errors);
+        alert('Failed to export report: ' + (result.errors?.[0]?.message || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Export error:', err);
+      alert('Network error: Failed to export report');
+    }
+  }
 </script>
 
 <div class="scans-page">
@@ -738,6 +783,10 @@
         </div>
 
         <div class="modal-actions">
+          <button class="btn btn-primary" on:click={() => exportReport(selectedScan.id)}>
+            <span>📥</span>
+            Export JSON Report
+          </button>
           <button class="btn btn-secondary" on:click={closeScanDetails}>Close</button>
         </div>
       {/if}

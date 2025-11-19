@@ -105,6 +105,11 @@ async function initializeServer() {
     // Initialize database (auto-sync schema + seed)
     await initializeDatabase();
 
+    // Initialize BullMQ workers
+    logger.info('Starting BullMQ workers...');
+    await import('./queue/workers.js');
+    logger.info('BullMQ workers started');
+
     // Load GraphQL schema asynchronously
     logger.info('Loading GraphQL schema...');
     const schemaPath = join(__dirname, 'graphql', 'schema.graphql');
@@ -395,6 +400,17 @@ async function initializeServer() {
           // Stop Apollo Server
           await apolloServer.stop();
           logger.info('Apollo Server stopped');
+
+          // Close BullMQ workers and queues
+          try {
+            const { closeWorkers } = await import('./queue/workers.js');
+            const { closeQueues } = await import('./queue/scan-queue.js');
+            await closeWorkers();
+            await closeQueues();
+            logger.info('BullMQ workers and queues closed');
+          } catch (error) {
+            logger.warn('Error closing BullMQ:', error);
+          }
 
           // Disconnect Prisma
           await prisma.$disconnect();

@@ -85,8 +85,29 @@
   {:else if agents.length === 0}
     <div class="empty-state">
       <span class="empty-icon">🤖</span>
-      <h2>No agents active</h2>
-      <p>Agents will appear here when scans are running</p>
+      <h2>No AI Agents Found</h2>
+      <p class="empty-lead">AI agents are automatically created when you start a security scan.</p>
+      <div class="empty-state-guide">
+        <div class="guide-section">
+          <h3>What are AI Agents?</h3>
+          <div class="agent-types">
+            <div class="agent-type-item"><span>🎯</span> <strong>Orchestrator</strong> - Coordinates testing</div>
+            <div class="agent-type-item"><span>🔍</span> <strong>Recon</strong> - Discovers attack surface</div>
+            <div class="agent-type-item"><span>📡</span> <strong>Scanner</strong> - Finds vulnerabilities</div>
+            <div class="agent-type-item"><span>💥</span> <strong>Exploiter</strong> - Tests exploitability</div>
+            <div class="agent-type-item"><span>📊</span> <strong>Analyst</strong> - Prioritizes risks</div>
+          </div>
+        </div>
+        <div class="guide-section">
+          <h3>How to see agents:</h3>
+          <ol class="guide-steps">
+            <li>Go to <strong>Targets</strong> and create a target</li>
+            <li>Go to <strong>Scans</strong> and create a new scan</li>
+            <li>Click <strong>Start Scan</strong></li>
+            <li>Return here to see agents working in real-time</li>
+          </ol>
+        </div>
+      </div>
     </div>
   {:else}
     <div class="agents-grid">
@@ -117,9 +138,20 @@
   .agent-card h3 { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; }
   .agent-role { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
   .agent-scan { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1rem; }
-  .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+  .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); max-width: 900px; margin: 0 auto; }
   .empty-icon { font-size: 4rem; display: block; margin-bottom: 1rem; }
   .empty-state h2 { font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+  .empty-lead { font-size: 1rem; margin-bottom: 2rem; }
+  .empty-state-guide { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.75rem; padding: 2rem; margin-top: 2rem; text-align: left; }
+  .guide-section { margin-bottom: 2rem; }
+  .guide-section:last-child { margin-bottom: 0; }
+  .guide-section h3 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1rem; }
+  .agent-types { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
+  .agent-type-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 0.5rem; font-size: 0.875rem; }
+  .agent-type-item span { font-size: 1.5rem; }
+  .guide-steps { padding-left: 1.5rem; line-height: 2; }
+  .guide-steps li { margin-bottom: 0.5rem; color: var(--text-secondary); }
+  .guide-steps strong { color: var(--primary); font-weight: 600; }
   .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem; color: var(--text-secondary); }
   .spinner { width: 40px; height: 40px; border: 4px solid var(--border); border-top-color: var(--primary); border-radius: 50%; margin-bottom: 1rem; }
 </style>

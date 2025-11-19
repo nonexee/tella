@@ -145,10 +145,265 @@ async function main() {
 
   console.log('✅ Upserted demo target:', target.name);
 
+  // Create a sample COMPLETED scan with agents, tasks, and findings
+  // This shows users what a completed scan looks like
+  const scan = await prisma.scan.upsert({
+    where: { id: 'demo-scan-001' },
+    update: {},
+    create: {
+      id: 'demo-scan-001',
+      name: 'Demo Security Scan',
+      targetId: target.id,
+      userId: admin.id,
+      status: 'COMPLETED',
+      progress: 100,
+      config: {
+        scanType: 'full',
+        depth: 2,
+        aggressiveMode: false
+      },
+      startedAt: new Date(Date.now() - 300000), // 5 minutes ago
+      completedAt: new Date(Date.now() - 60000), // 1 minute ago
+      createdAt: new Date(Date.now() - 360000) // 6 minutes ago
+    }
+  });
+
+  console.log('✅ Created demo scan:', scan.name);
+
+  // Create sample agents for the demo scan
+  const agentTypes = [
+    {
+      id: 'agent-orchestrator-001',
+      name: 'Orchestrator Agent',
+      type: 'ORCHESTRATOR',
+      role: 'Coordinates all security testing activities',
+      status: 'IDLE',
+      capabilities: { coordination: true, planning: true }
+    },
+    {
+      id: 'agent-recon-001',
+      name: 'Reconnaissance Agent',
+      type: 'RECON',
+      role: 'Discovers attack surface and gathers intelligence',
+      status: 'IDLE',
+      capabilities: { subdomain_enum: true, port_scan: true, tech_detection: true }
+    },
+    {
+      id: 'agent-scanner-001',
+      name: 'Vulnerability Scanner',
+      type: 'SCANNER',
+      role: 'Identifies security vulnerabilities',
+      status: 'IDLE',
+      capabilities: { web_scan: true, api_scan: true, ssl_check: true }
+    },
+    {
+      id: 'agent-analyst-001',
+      name: 'Security Analyst',
+      type: 'ANALYST',
+      role: 'Analyzes findings and prioritizes risks',
+      status: 'IDLE',
+      capabilities: { risk_assessment: true, impact_analysis: true }
+    }
+  ];
+
+  for (const agentData of agentTypes) {
+    await prisma.agent.upsert({
+      where: { id: agentData.id },
+      update: {},
+      create: {
+        id: agentData.id,
+        name: agentData.name,
+        type: agentData.type as any,
+        role: agentData.role,
+        status: agentData.status as any,
+        scanId: scan.id,
+        capabilities: agentData.capabilities,
+        config: {},
+        memory: {}
+      }
+    });
+  }
+
+  console.log(`✅ Created ${agentTypes.length} demo agents`);
+
+  // Create sample tasks
+  const tasks = [
+    {
+      id: 'task-001',
+      agentId: 'agent-recon-001',
+      scanId: scan.id,
+      type: 'PORT_SCAN',
+      description: 'Scan for open ports and services',
+      input: { target: target.url, ports: 'common' },
+      output: { openPorts: [80, 443, 8080], services: ['http', 'https', 'http-proxy'] },
+      status: 'COMPLETED',
+      priority: 1
+    },
+    {
+      id: 'task-002',
+      agentId: 'agent-scanner-001',
+      scanId: scan.id,
+      type: 'WEB_SCAN',
+      description: 'Scan web application for vulnerabilities',
+      input: { url: target.url, scan_types: ['xss', 'sqli'] },
+      output: { vulnerabilities: 3, highSeverity: 1 },
+      status: 'COMPLETED',
+      priority: 2
+    },
+    {
+      id: 'task-003',
+      agentId: 'agent-recon-001',
+      scanId: scan.id,
+      type: 'SUBDOMAIN_ENUM',
+      description: 'Enumerate subdomains',
+      input: { domain: 'testfire.net' },
+      output: { subdomains: ['demo', 'www', 'mail'] },
+      status: 'COMPLETED',
+      priority: 1
+    }
+  ];
+
+  for (const taskData of tasks) {
+    await prisma.task.upsert({
+      where: { id: taskData.id },
+      update: {},
+      create: {
+        id: taskData.id,
+        agentId: taskData.agentId,
+        scanId: taskData.scanId,
+        type: taskData.type as any,
+        description: taskData.description,
+        input: taskData.input,
+        output: taskData.output,
+        status: taskData.status as any,
+        priority: taskData.priority,
+        startedAt: new Date(Date.now() - 240000),
+        completedAt: new Date(Date.now() - 180000)
+      }
+    });
+  }
+
+  console.log(`✅ Created ${tasks.length} demo tasks`);
+
+  // Create sample findings
+  const findings = [
+    {
+      id: 'finding-001',
+      scanId: scan.id,
+      targetId: target.id,
+      title: 'SQL Injection Vulnerability',
+      description: 'The login form is vulnerable to SQL injection attacks. An attacker can bypass authentication by injecting malicious SQL code.',
+      severity: 'CRITICAL',
+      status: 'CONFIRMED',
+      category: 'INJECTION',
+      cvssScore: 9.8,
+      cveId: 'CVE-2023-XXXX',
+      affectedComponent: '/login.php',
+      remediation: 'Use parameterized queries or prepared statements. Never concatenate user input directly into SQL queries.',
+      references: ['https://owasp.org/www-community/attacks/SQL_Injection'],
+      evidence: {
+        request: "POST /login.php\nusername=admin' OR '1'='1&password=anything",
+        response: 'Login successful',
+        payload: "admin' OR '1'='1"
+      }
+    },
+    {
+      id: 'finding-002',
+      scanId: scan.id,
+      targetId: target.id,
+      title: 'Cross-Site Scripting (XSS)',
+      description: 'The search functionality does not properly sanitize user input, allowing stored XSS attacks.',
+      severity: 'HIGH',
+      status: 'CONFIRMED',
+      category: 'XSS',
+      cvssScore: 7.2,
+      affectedComponent: '/search.php',
+      remediation: 'Implement proper input validation and output encoding. Use Content Security Policy headers.',
+      references: ['https://owasp.org/www-community/attacks/xss/'],
+      evidence: {
+        payload: '<script>alert(document.cookie)</script>',
+        location: 'search parameter'
+      }
+    },
+    {
+      id: 'finding-003',
+      scanId: scan.id,
+      targetId: target.id,
+      title: 'Missing Security Headers',
+      description: 'The application does not implement important security headers like X-Frame-Options, X-Content-Type-Options, and Strict-Transport-Security.',
+      severity: 'MEDIUM',
+      status: 'CONFIRMED',
+      category: 'MISCONFIGURATION',
+      cvssScore: 5.3,
+      affectedComponent: 'All pages',
+      remediation: 'Add security headers to all HTTP responses. Use a security header middleware.',
+      references: ['https://owasp.org/www-project-secure-headers/'],
+      evidence: {
+        missingHeaders: ['X-Frame-Options', 'X-Content-Type-Options', 'Strict-Transport-Security']
+      }
+    },
+    {
+      id: 'finding-004',
+      scanId: scan.id,
+      targetId: target.id,
+      title: 'Outdated Software Version',
+      description: 'The web server is running an outdated version with known security vulnerabilities.',
+      severity: 'MEDIUM',
+      status: 'CONFIRMED',
+      category: 'MISCONFIGURATION',
+      cvssScore: 6.1,
+      affectedComponent: 'Web server',
+      remediation: 'Update to the latest stable version of the web server software.',
+      references: [],
+      evidence: {
+        currentVersion: 'Apache/2.4.41',
+        latestVersion: 'Apache/2.4.58'
+      }
+    },
+    {
+      id: 'finding-005',
+      scanId: scan.id,
+      targetId: target.id,
+      title: 'Information Disclosure in Error Messages',
+      description: 'Detailed error messages expose sensitive information about the application structure.',
+      severity: 'LOW',
+      status: 'CONFIRMED',
+      category: 'INFO_DISCLOSURE',
+      cvssScore: 3.7,
+      affectedComponent: '/error',
+      remediation: 'Implement generic error messages for users and log detailed errors server-side.',
+      references: ['https://owasp.org/www-project-top-ten/2017/A3_2017-Sensitive_Data_Exposure'],
+      evidence: {
+        errorMessage: 'MySQL Error: Table users not found in database testfire_db'
+      }
+    }
+  ];
+
+  for (const findingData of findings) {
+    await prisma.finding.upsert({
+      where: { id: findingData.id },
+      update: {},
+      create: {
+        ...findingData,
+        severity: findingData.severity as any,
+        status: findingData.status as any,
+        category: findingData.category as any
+      }
+    });
+  }
+
+  console.log(`✅ Created ${findings.length} demo findings`);
+
   console.log('🎉 Database seeding completed!');
   console.log('\n📝 Default credentials:');
   console.log('   Email: admin@tella.ai');
   console.log('   Password: Admin123!@#');
+  console.log('\n📊 Demo Data Created:');
+  console.log(`   - ${agentTypes.length} AI Agents`);
+  console.log(`   - ${tools.length} Security Tools`);
+  console.log(`   - ${tasks.length} Completed Tasks`);
+  console.log(`   - ${findings.length} Security Findings`);
+  console.log(`   - 1 Completed Demo Scan`);
   console.log('\n⚠️  IMPORTANT SECURITY NOTES:');
   console.log('   - CHANGE THESE CREDENTIALS IN PRODUCTION!');
   console.log('   - Password requirements: 8+ chars, uppercase, lowercase, number, special char');
