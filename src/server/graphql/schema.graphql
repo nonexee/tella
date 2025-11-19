@@ -318,6 +318,49 @@ type KnowledgeBase {
 }
 
 # ============================================
+# Audit Logs
+# ============================================
+
+type AuditLog {
+  id: ID!
+  scan: Scan
+  agent: Agent
+  task: Task
+  eventType: AuditEventType!
+  severity: AuditSeverity!
+  title: String!
+  message: String!
+  data: JSON
+  timestamp: DateTime!
+}
+
+enum AuditEventType {
+  SCAN_STARTED
+  SCAN_COMPLETED
+  SCAN_FAILED
+  AGENT_CREATED
+  AGENT_REASONING
+  TASK_CREATED
+  TASK_STARTED
+  TASK_COMPLETED
+  TASK_FAILED
+  TOOL_EXECUTION
+  LLM_INTERACTION
+  FINDING_CREATED
+  DECISION_MADE
+  ERROR_OCCURRED
+  PROGRESS_UPDATE
+}
+
+enum AuditSeverity {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+# ============================================
 # System Settings
 # ============================================
 
@@ -380,6 +423,10 @@ type Query {
 
   # System Settings
   systemSettings(key: String): [SystemSettings!]!
+
+  # Audit Logs
+  auditLogs(scanId: ID, agentId: ID, taskId: ID, eventType: AuditEventType, severity: AuditSeverity): [AuditLog!]!
+  auditLog(id: ID!): AuditLog
   systemSetting(key: String!): SystemSettings
 
   # Reports & Export

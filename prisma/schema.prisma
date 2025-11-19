@@ -94,6 +94,7 @@ model Scan {
   agents      Agent[]
   tasks       Task[]
   findings    Finding[]
+  auditLogs   AuditLog[]
 
   @@index([status])
   @@index([userId])
@@ -128,6 +129,7 @@ model Agent {
   tasks       Task[]
   conversations Conversation[]
   toolExecutions ToolExecution[]
+  auditLogs   AuditLog[]
 
   @@index([status])
   @@index([type])
@@ -173,6 +175,7 @@ model Task {
 
   dependencies TaskDependency[] @relation("DependentTask")
   dependents   TaskDependency[] @relation("RequiredTask")
+  auditLogs    AuditLog[]
 
   @@index([status])
   @@index([agentId])
@@ -356,4 +359,53 @@ model SystemSettings {
   updatedAt DateTime @updatedAt
 
   @@index([key])
+}
+
+// Audit log for tracking all scan execution events
+model AuditLog {
+  id          String        @id @default(uuid())
+  scanId      String?
+  scan        Scan?         @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  agentId     String?
+  agent       Agent?        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  taskId      String?
+  task        Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  eventType   AuditEventType
+  severity    AuditSeverity @default(INFO)
+  title       String
+  message     String
+  data        Json?
+  timestamp   DateTime      @default(now())
+
+  @@index([scanId])
+  @@index([agentId])
+  @@index([taskId])
+  @@index([eventType])
+  @@index([timestamp])
+}
+
+enum AuditEventType {
+  SCAN_STARTED
+  SCAN_COMPLETED
+  SCAN_FAILED
+  AGENT_CREATED
+  AGENT_REASONING
+  TASK_CREATED
+  TASK_STARTED
+  TASK_COMPLETED
+  TASK_FAILED
+  TOOL_EXECUTION
+  LLM_INTERACTION
+  FINDING_CREATED
+  DECISION_MADE
+  ERROR_OCCURRED
+  PROGRESS_UPDATE
+}
+
+enum AuditSeverity {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
 }

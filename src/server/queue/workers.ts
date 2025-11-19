@@ -9,6 +9,7 @@ import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
+import { auditScan, auditTask, auditTool, auditFinding } from '../utils/audit-logger.js';
 import { AgentOrchestrator } from '../ai/agent-orchestrator.js';
 import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
 import { QUEUE_NAMES } from './scan-queue.js';
@@ -51,6 +52,9 @@ export const scanWorker = new Worker<ScanJobData>(
         }
       });
 
+      // Audit log: Scan started
+      await auditScan.started(scanId, { targetId, userId, config });
+
       // Initialize orchestrator and create agents + tasks
       const orchestrator = new AgentOrchestrator();
       await orchestrator.orchestrateScan(scanId);
@@ -65,6 +69,9 @@ export const scanWorker = new Worker<ScanJobData>(
 
     } catch (error: any) {
       logger.error(`Scan ${scanId} failed:`, error);
+
+      // Audit log: Scan failed
+      await auditScan.failed(scanId, error.message || 'Unknown error during scan execution', { error: error.stack });
 
       // Update scan status to FAILED with error message
       await prisma.scan.update({
@@ -128,8 +135,14 @@ export const taskWorker = new Worker<TaskJobData>(
         }
       });
 
+      // Audit log: Task started
+      await auditTask.started(scanId, agentId, taskId, type);
+
       // Execute task based on type
       const result = await executeTask(task);
+
+      // Audit log: Tool execution details
+      await auditTool.executed(scanId, agentId, taskId, type, description, result);
 
       // Update task status to COMPLETED
       await prisma.task.update({
@@ -140,6 +153,9 @@ export const taskWorker = new Worker<TaskJobData>(
           completedAt: new Date()
         }
       });
+
+      // Audit log: Task completed
+      await auditTask.completed(scanId, agentId, taskId, type, result);
 
       // Create findings from task results
       await createFindingsFromTaskResult(task, result);
@@ -153,6 +169,9 @@ export const taskWorker = new Worker<TaskJobData>(
 
     } catch (error: any) {
       logger.error(`Task ${taskId} failed:`, error);
+
+      // Audit log: Task failed
+      await auditTask.failed(scanId, agentId, taskId, type, error.message);
 
       // Update task status to FAILED
       await prisma.task.update({
@@ -445,6 +464,17 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
         data: findings
       });
       logger.info(`Created ${findings.length} findings from task ${task.id}`);
+
+      // Audit log each finding
+      for (const finding of findings) {
+        await auditFinding.created(
+          task.scanId,
+          task.id,
+          finding.title,
+          finding.severity,
+          { category: finding.category, cvss: finding.cvss }
+        );
+      }
     }
 
   } catch (error: any) {
@@ -499,6 +529,8 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
       logger.info(`All tasks completed for scan ${scanId}. Completed: ${completedTasks}, Failed: ${failedTasks}`);
 
+      const finalStatus = failedTasks === tasks.length ? 'FAILED' : 'COMPLETED';
+
       // Update scan status - mark as completed even if some tasks failed
       // The scan worker will handle this, but we update progress here
       await prisma.scan.update({
@@ -506,11 +538,18 @@ async function checkScanCompletion(scanId: string): Promise<void> {
         data: {
           progress: 100,
           completedAt: new Date(),
-          status: failedTasks === tasks.length ? 'FAILED' : 'COMPLETED'
+          status: finalStatus
         }
       });
 
-      logger.info(`Scan ${scanId} marked as complete`);
+      // Audit log: Scan completed or failed
+      if (finalStatus === 'COMPLETED') {
+        await auditScan.completed(scanId, { completedTasks, failedTasks, totalTasks: tasks.length });
+      } else {
+        await auditScan.failed(scanId, 'All tasks failed', { completedTasks, failedTasks, totalTasks: tasks.length });
+      }
+
+      logger.info(`Scan ${scanId} marked as ${finalStatus}`);
     } else {
       // Calculate progress based on completed tasks
       const completedCount = tasks.filter(t =>
@@ -522,6 +561,9 @@ async function checkScanCompletion(scanId: string): Promise<void> {
         where: { id: scanId },
         data: { progress }
       });
+
+      // Audit log: Progress update
+      await auditScan.progress(scanId, progress, `${completedCount}/${tasks.length} tasks completed`);
 
       logger.debug(`Scan ${scanId} progress: ${progress}% (${completedCount}/${tasks.length} tasks completed)`);
     }

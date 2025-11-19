@@ -81,6 +81,15 @@
 
     <button
       class="nav-item"
+      class:active={activeView === 'console'}
+      on:click={() => navigate('console')}
+    >
+      <span class="icon">📟</span>
+      <span>Console</span>
+    </button>
+
+    <button
+      class="nav-item"
       class:active={activeView === 'settings'}
       on:click={() => navigate('settings')}
     >

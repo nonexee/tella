@@ -6,6 +6,7 @@
   import Findings from './components/Findings.svelte';
   import Agents from './components/Agents.svelte';
   import Tools from './components/Tools.svelte';
+  import Console from './components/Console.svelte';
   import Settings from './components/Settings.svelte';
   import Login from './components/Login.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -44,6 +45,8 @@
             <Agents />
           {:else if currentView === 'tools'}
             <Tools />
+          {:else if currentView === 'console'}
+            <Console />
           {:else if currentView === 'settings'}
             <Settings />
           {/if}
