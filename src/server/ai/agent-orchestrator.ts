@@ -331,7 +331,7 @@ export class AgentOrchestrator extends EventEmitter {
         await this.createTask({
           agentId: reconAgent.id,
           scanId,
-          type: 'SUBDOMAIN_ENUM',
+          type: 'ENUMERATE',
           description: `Enumerate subdomains for ${domain}`,
           input: {
             domain: domain,
@@ -346,7 +346,7 @@ export class AgentOrchestrator extends EventEmitter {
         await this.createTask({
           agentId: scannerAgent.id,
           scanId,
-          type: 'WEB_SCAN',
+          type: 'VULN_SCAN',
           description: `Scan ${target.url} for web vulnerabilities`,
           input: {
             url: target.url,

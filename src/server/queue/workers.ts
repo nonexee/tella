@@ -279,14 +279,14 @@ async function executeTask(task: any): Promise<any> {
           technique: input.technique
         });
 
-      case 'WEB_SCAN':
+      case 'VULN_SCAN':
         return await tools.webScan({
           url: input.url,
           scan_types: input.scan_types,
           depth: input.depth
         });
 
-      case 'SUBDOMAIN_ENUM':
+      case 'ENUMERATE':
         return await tools.subdomainEnum({
           domain: input.domain,
           techniques: input.techniques
@@ -362,7 +362,7 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
         }
         break;
 
-      case 'WEB_SCAN':
+      case 'VULN_SCAN':
         // Create findings for detected vulnerabilities
         if (result.vulnerabilities && result.vulnerabilities.length > 0) {
           for (const vuln of result.vulnerabilities) {
@@ -391,7 +391,7 @@ async function createFindingsFromTaskResult(task: any, result: any): Promise<voi
         }
         break;
 
-      case 'SUBDOMAIN_ENUM':
+      case 'ENUMERATE':
         // Create informational finding for discovered subdomains
         if (result.subdomains && result.subdomains.length > 0) {
           findings.push({

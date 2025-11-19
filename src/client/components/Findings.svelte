@@ -102,7 +102,7 @@
                 severity
                 category
                 cvss
-                cveId
+                cve
                 confidence
                 status
                 impact
@@ -247,8 +247,8 @@
                 {#if findingDetails.cvss}
                   <span class="cvss-badge-large">CVSS: {findingDetails.cvss.toFixed(1)}</span>
                 {/if}
-                {#if findingDetails.cveId}
-                  <span class="cve-badge-large">{findingDetails.cveId}</span>
+                {#if findingDetails.cve}
+                  <span class="cve-badge-large">{findingDetails.cve}</span>
                 {/if}
               </div>
             </div>
