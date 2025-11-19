@@ -105,12 +105,10 @@
                 cve
                 confidence
                 status
-                impact
-                likelihood
-                affectedResources
                 evidence
                 remediation
                 references
+                metadata
                 createdAt
                 updatedAt
                 target {
@@ -274,16 +272,10 @@
                 <span class="detail-label">Discovered</span>
                 <span>{formatDate(findingDetails.createdAt)}</span>
               </div>
-              {#if findingDetails.impact}
+              {#if findingDetails.evidence && findingDetails.evidence.affectedComponent}
                 <div class="detail-item">
-                  <span class="detail-label">Impact</span>
-                  <span>{findingDetails.impact}</span>
-                </div>
-              {/if}
-              {#if findingDetails.likelihood}
-                <div class="detail-item">
-                  <span class="detail-label">Likelihood</span>
-                  <span>{findingDetails.likelihood}</span>
+                  <span class="detail-label">Affected Component</span>
+                  <span class="monospace">{findingDetails.evidence.affectedComponent}</span>
                 </div>
               {/if}
             </div>
@@ -317,21 +309,6 @@
               </div>
             </div>
           </div>
-
-          <!-- Affected Resources Section -->
-          {#if findingDetails.affectedResources && findingDetails.affectedResources.length > 0}
-            <div class="detail-section">
-              <h4>Affected Resources</h4>
-              <div class="resources-list">
-                {#each JSON.parse(findingDetails.affectedResources) as resource}
-                  <div class="resource-item">
-                    <span class="resource-icon">🔗</span>
-                    <span class="monospace">{resource}</span>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
 
           <!-- Evidence Section -->
           {#if findingDetails.evidence}

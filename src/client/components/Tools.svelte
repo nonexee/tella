@@ -25,7 +25,6 @@
                 name
                 description
                 category
-                version
                 enabled
               }
             }
@@ -107,9 +106,6 @@
             </span>
           </div>
           <p class="tool-description">{tool.description}</p>
-          {#if tool.version}
-            <p class="tool-version">Version: {tool.version}</p>
-          {/if}
         </div>
       {/each}
     </div>
