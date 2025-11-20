@@ -21,6 +21,8 @@ import pLimit from 'p-limit';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { nmapWrapper } from './nmap-wrapper.js';
+import { niktoWrapper } from './nikto-wrapper.js';
+import { sqlmapWrapper } from './sqlmap-wrapper.js';
 
 const execAsync = promisify(exec);
 
@@ -99,6 +101,8 @@ export class SecurityTools {
   private readonly MAX_TIMEOUT = 30000; // 30 seconds
   private readonly USER_AGENT = 'TellaAI-SecurityTester/1.0';
   private nmapAvailable: boolean | null = null;
+  private niktoAvailable: boolean | null = null;
+  private sqlmapAvailable: boolean | null = null;
 
   /**
    * Port scanning with multiple techniques
@@ -250,6 +254,42 @@ export class SecurityTools {
     const vulnerabilities: WebScanResult['vulnerabilities'] = [];
 
     try {
+      // Check if Nikto is available (cache the result)
+      if (this.niktoAvailable === null) {
+        this.niktoAvailable = await niktoWrapper.isAvailable();
+        if (this.niktoAvailable) {
+          const version = await niktoWrapper.getVersion();
+          logger.info(`Nikto detected: version ${version}`);
+        } else {
+          logger.warn('Nikto not available, using fallback web scan methods');
+        }
+      }
+
+      // If Nikto is available, use it for comprehensive web scanning
+      if (this.niktoAvailable) {
+        try {
+          logger.info('Running Nikto comprehensive web scan');
+          const niktoResult = await niktoWrapper.quickScan(validatedParams.url);
+
+          if (niktoResult.success && niktoResult.findings.length > 0) {
+            // Convert Nikto findings to our vulnerability format
+            const niktoVulns = niktoResult.findings.map(finding => ({
+              type: finding.severity === 'CRITICAL' || finding.severity === 'HIGH' ? 'sql_injection' :
+                    finding.message.toLowerCase().includes('xss') ? 'xss' :
+                    finding.message.toLowerCase().includes('csrf') ? 'csrf' : 'misconfiguration',
+              severity: finding.severity.toLowerCase() as 'low' | 'medium' | 'high' | 'critical',
+              description: finding.message,
+              evidence: `Nikto scan result (${finding.osvdbId ? `OSVDB-${finding.osvdbId}` : 'N/A'})`,
+              remediation: 'Review Nikto finding and apply appropriate security patches'
+            }));
+            vulnerabilities.push(...niktoVulns);
+            logger.info(`Nikto found ${niktoVulns.length} vulnerabilities`);
+          }
+        } catch (niktoError: any) {
+          logger.error('Nikto scan failed, falling back to custom tests:', niktoError.message);
+        }
+      }
+
       // Fingerprint technologies
       const technologies = await this.detectTechnologies(validatedParams.url);
 
@@ -259,7 +299,7 @@ export class SecurityTools {
       // Check cookies
       const cookies = await this.analyzeCookies(validatedParams.url);
 
-      // Run vulnerability tests
+      // Run vulnerability tests (custom methods as fallback or supplement)
       if (scanTypes.includes('xss')) {
         const xssVulns = await this.testXSS(validatedParams.url);
         vulnerabilities.push(...xssVulns);
@@ -364,10 +404,56 @@ export class SecurityTools {
 
   /**
    * SQL Injection testing
+   * Uses SQLmap if available, falls back to custom testing
    */
   private async testSQLInjection(url: string): Promise<WebScanResult['vulnerabilities']> {
     const vulnerabilities: WebScanResult['vulnerabilities'] = [];
 
+    // Check if SQLmap is available (cache the result)
+    if (this.sqlmapAvailable === null) {
+      this.sqlmapAvailable = await sqlmapWrapper.isAvailable();
+      if (this.sqlmapAvailable) {
+        const version = await sqlmapWrapper.getVersion();
+        logger.info(`SQLmap detected: version ${version}`);
+      } else {
+        logger.warn('SQLmap not available, using fallback SQL injection tests');
+      }
+    }
+
+    // If SQLmap is available, use it for professional SQL injection testing
+    if (this.sqlmapAvailable) {
+      try {
+        logger.info('Running SQLmap SQL injection scan');
+        const sqlmapResult = await sqlmapWrapper.quickTest(url);
+
+        if (sqlmapResult.success && sqlmapResult.vulnerable) {
+          // Convert SQLmap findings to our vulnerability format
+          const sqlmapVulns = sqlmapResult.vulnerabilities.map(vuln => ({
+            type: 'sql_injection',
+            severity: 'critical' as const,
+            description: vuln.title || `SQL injection in ${vuln.parameter} parameter`,
+            evidence: {
+              parameter: vuln.parameter,
+              injectionType: vuln.injectionType,
+              payload: vuln.payload,
+              dbms: vuln.dbms
+            },
+            remediation: 'Use parameterized queries (prepared statements) to prevent SQL injection. Never concatenate user input into SQL queries.'
+          }));
+          vulnerabilities.push(...sqlmapVulns);
+          logger.info(`SQLmap found ${sqlmapVulns.length} SQL injection vulnerabilities`);
+
+          // If SQLmap found vulns, return immediately (no need for custom tests)
+          if (sqlmapVulns.length > 0) {
+            return vulnerabilities;
+          }
+        }
+      } catch (sqlmapError: any) {
+        logger.error('SQLmap scan failed, falling back to custom SQL injection tests:', sqlmapError.message);
+      }
+    }
+
+    // Fallback: Custom SQL injection testing
     const sqliPayloads = [
       "' OR '1'='1",
       "' OR '1'='1' --",
