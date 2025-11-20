@@ -654,7 +654,7 @@ export const resolvers = {
 
       return prisma.auditLog.findMany({
         where,
-        orderBy: { timestamp: 'desc' },
+        orderBy: { timestamp: 'asc' }, // Chronological order (oldest first)
         take: 1000, // Limit to last 1000 logs
         include: {
           scan: {

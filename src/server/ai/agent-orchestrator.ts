@@ -870,12 +870,16 @@ As a reporter:
             model,
             messages,
             tools: this.getAvailableTools(),
-            tool_choice: 'auto',
-            temperature: 0.7
+            tool_choice: 'auto'
           };
 
+          // GPT-5 only supports temperature=1 (default), so don't set it
+          if (!model.includes('gpt-5')) {
+            completionParams.temperature = 0.7;
+          }
+
           // Newer models use max_completion_tokens
-          if (model.includes('gpt-4o') || model.includes('o1') || model.includes('gpt-4-turbo')) {
+          if (model.includes('gpt-4o') || model.includes('gpt-5') || model.includes('o1') || model.includes('gpt-4-turbo')) {
             completionParams.max_completion_tokens = 4000;
           } else {
             completionParams.max_tokens = 4000;
@@ -1160,7 +1164,7 @@ As a reporter:
               cvss: { type: 'number', description: 'CVSS score' },
               remediation: { type: 'string', description: 'Remediation advice' }
             },
-            required: ['title', 'description', 'severity', 'category', 'evidence']
+            required: ['title', 'description', 'severity', 'category']
           }
         }
       },
@@ -1310,7 +1314,7 @@ As a reporter:
         description: args.description,
         severity: args.severity,
         category: args.category,
-        evidence: args.evidence,
+        evidence: args.evidence || {},
         cvss: args.cvss,
         remediation: args.remediation,
         confidence: args.confidence || 1.0,
