@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { subscribeScanUpdated } from '../lib/subscription-client';
 
   const dispatch = createEventDispatcher();
 
@@ -23,12 +24,42 @@
     }
   };
 
+  // Store active subscription unsubscribe functions
+  let subscriptionCleanups: (() => void)[] = [];
+
   onMount(async () => {
     await fetchScans();
     await fetchTargets();
-    const interval = setInterval(fetchScans, 15000);
-    return () => clearInterval(interval);
+    // Initial fetch is enough, subscriptions will handle updates
   });
+
+  onDestroy(() => {
+    // Clean up all active subscriptions
+    subscriptionCleanups.forEach(cleanup => cleanup());
+    subscriptionCleanups = [];
+  });
+
+  // Subscribe to real-time updates for running scans
+  function subscribeToScanUpdates(scanId: string) {
+    const unsubscribe = subscribeScanUpdated(
+      scanId,
+      (updatedScan) => {
+        // Update the scan in our local list
+        scans = scans.map(scan =>
+          scan.id === updatedScan.id ? { ...scan, ...updatedScan } : scan
+        );
+
+        // If we're viewing this scan's details, update those too
+        if (selectedScan?.id === updatedScan.id) {
+          selectedScan = { ...selectedScan, ...updatedScan };
+        }
+      },
+      (error) => {
+        console.error(`Subscription error for scan ${scanId}:`, error);
+      }
+    );
+    subscriptionCleanups.push(unsubscribe);
+  }
 
   async function fetchScans() {
     try {
@@ -71,6 +102,13 @@
       const result = await response.json();
       if (result.data?.scans) {
         scans = result.data.scans;
+
+        // Subscribe to real-time updates for any running/queued scans
+        scans.forEach(scan => {
+          if (scan.status === 'RUNNING' || scan.status === 'QUEUED') {
+            subscribeToScanUpdates(scan.id);
+          }
+        });
       }
     } catch (err) {
       console.error('Failed to fetch scans:', err);
@@ -168,6 +206,8 @@
           showNewScanModal = false;
           newScan = { name: '', targetId: '', config: { maxDepth: 3, timeout: 300000, aggressive: false } };
           await fetchScans();
+          // Subscribe to real-time updates for the new scan
+          subscribeToScanUpdates(scanId);
         } else if (startResult.errors) {
           console.error('Failed to start scan:', startResult.errors);
           alert('Scan created but failed to start: ' + startResult.errors[0].message);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { subscribeScanUpdated, subscribeScanProgress } from '../lib/subscription-client';
 
   export let scanId: string;
 
@@ -9,18 +10,55 @@
   let consoleContainer: HTMLElement;
   let isAtBottom = true;
   let lastScrollTop = 0;
+  let unsubscribeScan: (() => void) | null = null;
+  let unsubscribeProgress: (() => void) | null = null;
 
   onMount(async () => {
     await loadScanInfo();
     await fetchAuditLogs();
 
-    // Poll every 2 seconds instead of 1 (less jarring)
+    // Subscribe to real-time scan updates
+    unsubscribeScan = subscribeScanUpdated(
+      scanId,
+      (updatedScan) => {
+        scanInfo = { ...scanInfo, ...updatedScan };
+
+        // If scan completed or failed, fetch final audit logs
+        if (updatedScan.status === 'COMPLETED' || updatedScan.status === 'FAILED') {
+          fetchAuditLogs();
+        }
+      },
+      (error) => {
+        console.error('Scan subscription error:', error);
+      }
+    );
+
+    // Subscribe to scan progress updates
+    unsubscribeProgress = subscribeScanProgress(
+      scanId,
+      (progress) => {
+        // Log progress updates
+        console.log('Scan progress:', progress);
+      },
+      (error) => {
+        console.error('Progress subscription error:', error);
+      }
+    );
+
+    // Keep polling for audit logs since they're not in subscriptions yet
+    // TODO: Add audit log subscriptions to backend
     refreshInterval = setInterval(fetchAuditLogs, 2000);
   });
 
   onDestroy(() => {
     if (refreshInterval) {
       clearInterval(refreshInterval);
+    }
+    if (unsubscribeScan) {
+      unsubscribeScan();
+    }
+    if (unsubscribeProgress) {
+      unsubscribeProgress();
     }
   });
 
