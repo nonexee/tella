@@ -90,6 +90,15 @@
 
     <button
       class="nav-item"
+      class:active={activeView === 'webhooks'}
+      on:click={() => navigate('webhooks')}
+    >
+      <span class="icon">⚡</span>
+      <span>Webhooks</span>
+    </button>
+
+    <button
+      class="nav-item"
       class:active={activeView === 'settings'}
       on:click={() => navigate('settings')}
     >

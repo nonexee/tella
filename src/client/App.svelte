@@ -10,6 +10,7 @@
   import ScanConsole from './components/ScanConsole.svelte';
   import Settings from './components/Settings.svelte';
   import Profile from './components/Profile.svelte';
+  import Webhooks from './components/Webhooks.svelte';
   import Login from './components/Login.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import ErrorBoundary from './components/ErrorBoundary.svelte';
@@ -62,6 +63,8 @@
             <Settings />
           {:else if currentView === 'profile'}
             <Profile />
+          {:else if currentView === 'webhooks'}
+            <Webhooks />
           {/if}
         </div>
       </div>
