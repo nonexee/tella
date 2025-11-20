@@ -1324,6 +1324,37 @@ export const resolvers = {
       return true;
     },
 
+    exportScanReport: async (
+      _parent: unknown,
+      { id, format }: { id: string; format: 'JSON' | 'CSV' | 'PDF' },
+      context: Context
+    ): Promise<{ success: boolean; filename?: string; downloadUrl?: string; error?: string }> => {
+      requirePermission(context, 'scan:read');
+
+      try {
+        // Import report generator
+        const { generateReport } = await import('../utils/report-generator.js');
+
+        // Generate report
+        const filename = await generateReport(id, format.toLowerCase() as 'json' | 'csv' | 'pdf');
+
+        // Return download URL
+        const downloadUrl = `/downloads/${filename}`;
+
+        return {
+          success: true,
+          filename,
+          downloadUrl,
+        };
+      } catch (error: any) {
+        logger.error('Failed to export scan report:', error);
+        return {
+          success: false,
+          error: error.message || 'Failed to generate report',
+        };
+      }
+    },
+
     createAgent: async (
       _parent: unknown,
       args: any,

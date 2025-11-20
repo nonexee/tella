@@ -502,6 +502,7 @@ type Mutation {
   resumeScan(id: ID!): Scan!
   cancelScan(id: ID!): Scan!
   deleteScan(id: ID!): Boolean!
+  exportScanReport(id: ID!, format: ReportFormat!): ExportResult!
 
   # Agents
   createAgent(
@@ -669,4 +670,21 @@ type LogEntry {
   level: String!
   message: String!
   metadata: JSON
+}
+
+# ============================================
+# Report Export
+# ============================================
+
+enum ReportFormat {
+  JSON
+  CSV
+  PDF
+}
+
+type ExportResult {
+  success: Boolean!
+  filename: String
+  downloadUrl: String
+  error: String
 }

@@ -211,6 +211,59 @@ async function initializeServer() {
       }
     });
 
+    // Download endpoint for report exports
+    app.get('/downloads/:filename', async (req, res) => {
+      try {
+        const { filename } = req.params;
+
+        // Validate filename (prevent directory traversal)
+        if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          return res.status(400).json({ error: 'Invalid filename' });
+        }
+
+        // Construct file path
+        const { join } = await import('path');
+        const { stat } = await import('fs/promises');
+        const filepath = join(process.cwd(), 'tmp', 'reports', filename);
+
+        // Check if file exists
+        try {
+          await stat(filepath);
+        } catch {
+          return res.status(404).json({ error: 'File not found' });
+        }
+
+        // Determine content type
+        let contentType = 'application/octet-stream';
+        if (filename.endsWith('.json')) {
+          contentType = 'application/json';
+        } else if (filename.endsWith('.csv')) {
+          contentType = 'text/csv';
+        } else if (filename.endsWith('.pdf')) {
+          contentType = 'application/pdf';
+        }
+
+        // Set headers
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+        // Send file
+        res.sendFile(filepath, (err) => {
+          if (err) {
+            logger.error('Failed to send file:', err);
+            if (!res.headersSent) {
+              res.status(500).json({ error: 'Failed to download file' });
+            }
+          }
+        });
+      } catch (error) {
+        logger.error('Download endpoint error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
+      }
+    });
+
     // Apply rate limiting
     app.use('/graphql', generalLimiter);
 
