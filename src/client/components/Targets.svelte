@@ -9,6 +9,8 @@
   let selectedTargetForScan: any = null;
   let loading = true;
   let startingScan = false;
+  let showEditTargetModal = false;
+  let editingTarget: any = null;
 
   // New target form data
   let newTarget = {
@@ -16,6 +18,16 @@
     url: '',
     type: 'WEB_APP',
     description: ''
+  };
+
+  // Edit target form data
+  let editTarget = {
+    id: '',
+    name: '',
+    url: '',
+    type: 'WEB_APP',
+    description: '',
+    status: 'ACTIVE'
   };
 
   // New scan form data for quick start
@@ -121,6 +133,96 @@
     } catch (err) {
       console.error('Failed to create target:', err);
       alert('Network error: ' + (err instanceof Error ? err.message : 'Failed to create target'));
+    }
+  }
+
+  async function deleteTarget(targetId: string, targetName: string) {
+    if (!confirm(`Are you sure you want to delete "${targetName}"?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation DeleteTarget($id: ID!) {
+              deleteTarget(id: $id)
+            }
+          `,
+          variables: { id: targetId }
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.data?.deleteTarget) {
+        await fetchTargets();
+      } else if (result.errors) {
+        alert('Error deleting target: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to delete target:', err);
+      alert('Network error: Failed to delete target');
+    }
+  }
+
+  function openEditModal(target: any) {
+    editingTarget = target;
+    editTarget = {
+      id: target.id,
+      name: target.name,
+      url: target.url,
+      type: target.type,
+      description: target.description || '',
+      status: target.status
+    };
+    showEditTargetModal = true;
+  }
+
+  async function updateTarget() {
+    try {
+      const token = localStorage.getItem('token');
+      const { id, ...data } = editTarget;
+
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation UpdateTarget($id: ID!, $name: String, $url: String, $description: String, $status: TargetStatus) {
+              updateTarget(id: $id, name: $name, url: $url, description: $description, status: $status) {
+                id
+                name
+                url
+                status
+                description
+              }
+            }
+          `,
+          variables: { id, ...data }
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.data?.updateTarget) {
+        showEditTargetModal = false;
+        await fetchTargets();
+      } else if (result.errors) {
+        alert('Error updating target: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to update target:', err);
+      alert('Network error: Failed to update target');
     }
   }
 
@@ -294,6 +396,20 @@
 
           <div class="target-actions">
             <button
+              class="btn btn-secondary btn-small"
+              on:click|stopPropagation={() => openEditModal(target)}
+              title="Edit target"
+            >
+              ✏️ Edit
+            </button>
+            <button
+              class="btn btn-danger btn-small"
+              on:click|stopPropagation={() => deleteTarget(target.id, target.name)}
+              title="Delete target"
+            >
+              🗑️ Delete
+            </button>
+            <button
               class="btn btn-primary btn-start-scan"
               on:click|stopPropagation={() => openStartScanModal(target)}
             >
@@ -372,6 +488,91 @@
           </button>
           <button type="submit" class="btn btn-primary">
             Add Target
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if showEditTargetModal}
+  <div
+    class="modal-overlay"
+    role="presentation"
+    on:click={(e) => e.target === e.currentTarget && (showEditTargetModal = false)}
+    on:keydown={(e) => e.key === 'Escape' && (showEditTargetModal = false)}
+  >
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="modal-header">
+        <h2>Edit Target</h2>
+        <button
+          class="close-btn"
+          on:click={() => showEditTargetModal = false}
+          aria-label="Close"
+        >×</button>
+      </div>
+
+      <form on:submit|preventDefault={updateTarget}>
+        <div class="form-group">
+          <label for="edit-name">Name *</label>
+          <input
+            id="edit-name"
+            type="text"
+            bind:value={editTarget.name}
+            required
+            placeholder="My Web Application"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="edit-url">URL *</label>
+          <input
+            id="edit-url"
+            type="url"
+            bind:value={editTarget.url}
+            required
+            placeholder="https://example.com"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="edit-type">Type</label>
+          <select id="edit-type" bind:value={editTarget.type}>
+            {#each targetTypes as type}
+              <option value={type.value}>{type.label}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-status">Status</label>
+          <select id="edit-status" bind:value={editTarget.status}>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-description">Description</label>
+          <textarea
+            id="edit-description"
+            bind:value={editTarget.description}
+            rows="3"
+            placeholder="Optional description..."
+          ></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" on:click={() => showEditTargetModal = false}>
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary">
+            Save Changes
           </button>
         </div>
       </form>
