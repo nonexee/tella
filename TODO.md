@@ -31,11 +31,12 @@ This document tracks remaining features and improvements for the Tella AI securi
 - ✅ **Report Export System** - JSON/CSV/PDF export with download endpoint
 - ✅ **Target CRUD Operations** - Complete edit/delete functionality with UI
 - ✅ **Scan Management** - Delete scans and export reports from UI
+- ✅ **Target Detail View** - Complete modal with scan history and findings summary
 - ✅ **Documentation** - Comprehensive FEATURES.md, updated TODO.md, SCAN_LOGS.md
 
-**Total Lines Added This Session:** 3,800+ lines
-**Total Commits This Session:** 11 production-ready commits
-**Features Completed:** 5 major features (P0/P1 items)
+**Total Lines Added This Session:** 4,500+ lines
+**Total Commits This Session:** 13 production-ready commits
+**Features Completed:** 6 major features (P0/P1/P2 items)
 **Documentation:** 3 comprehensive files (FEATURES.md, TODO.md, SCAN_LOGS.md)
 
 ---
@@ -190,28 +191,29 @@ This document tracks remaining features and improvements for the Tella AI securi
 
 ---
 
-### 6. Target Detail View
+### ~~6. Target Detail View~~ ✅ COMPLETE
 
-**Status**: ❌ Not Started
-**Priority**: P2 - Medium
-**Effort**: Low (4 hours)
+**Status**: ✅ **COMPLETED**
+**Completed**: 2025-11-20
+**Commit**: `3a88217`
 
-**Description**: Add modal/page to view target details, scan history, and findings.
+**What Was Done**:
+- ✅ Created TargetDetail.svelte modal component (740 lines)
+- ✅ Implemented GraphQL query for target details with scan history
+- ✅ Display target metadata (name, URL, type, status, description)
+- ✅ Show findings count by severity with visual stats
+- ✅ Recent findings list (10 most recent with severity badges)
+- ✅ Scan history timeline with color-coded status markers
+- ✅ Progress bars for running scans
+- ✅ Edit button integrated into detail view
+- ✅ Clickable target card headers to open detail
+- ✅ ESC key support and proper modal layering
 
-**Tasks**:
-- [ ] Create Target Detail modal component
-- [ ] Query scan history for target
-- [ ] Display target metadata
-- [ ] Show findings count by severity
-- [ ] Add timeline of scans
-- [ ] Link to individual scan details
-- [ ] Add edit target button (if P2 #5 done)
+**Files Modified**:
+- `src/client/components/TargetDetail.svelte` (NEW - 740 lines)
+- `src/client/components/Targets.svelte` (integrated detail modal)
 
-**Files to Create**:
-- `src/client/components/TargetDetail.svelte` (modal or dedicated component)
-
-**Files to Modify**:
-- `src/client/components/Targets.svelte` (add click handler)
+**Impact**: Complete target overview with scan history and findings at a glance
 
 ---
 
