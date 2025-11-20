@@ -24,6 +24,7 @@ import { auditAgent, auditTask, auditTool, logAudit } from '../utils/audit-logge
 import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
 import { sanitizeError } from '../utils/security.js';
+import { triggerWebhookEvent } from '../services/webhook-service.js';
 import pLimit from 'p-limit';
 
 const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
@@ -1324,6 +1325,65 @@ As a reporter:
     });
 
     logger.info(`Finding reported: ${finding.id} - ${finding.title} (${finding.severity})`);
+
+    // Trigger webhooks for finding creation
+    try {
+      // Always trigger FINDING_CREATED
+      await triggerWebhookEvent('FINDING_CREATED', {
+        finding: {
+          id: finding.id,
+          title: finding.title,
+          description: finding.description,
+          severity: finding.severity,
+          category: finding.category,
+          cvss: finding.cvss,
+          confidence: finding.confidence
+        },
+        scan: {
+          id: scan.id,
+          name: scan.name
+        },
+        target: {
+          id: scan.targetId
+        }
+      });
+
+      // Trigger severity-specific webhooks
+      if (finding.severity === 'CRITICAL') {
+        await triggerWebhookEvent('FINDING_CRITICAL', {
+          finding: {
+            id: finding.id,
+            title: finding.title,
+            description: finding.description,
+            severity: finding.severity,
+            category: finding.category,
+            cvss: finding.cvss
+          },
+          scan: {
+            id: scan.id,
+            name: scan.name
+          }
+        });
+      } else if (finding.severity === 'HIGH') {
+        await triggerWebhookEvent('FINDING_HIGH_SEVERITY', {
+          finding: {
+            id: finding.id,
+            title: finding.title,
+            description: finding.description,
+            severity: finding.severity,
+            category: finding.category,
+            cvss: finding.cvss
+          },
+          scan: {
+            id: scan.id,
+            name: scan.name
+          }
+        });
+      }
+    } catch (webhookError) {
+      // Don't fail finding creation if webhook fails
+      logger.error('Failed to trigger webhooks for finding:', webhookError);
+    }
 
     return { findingId: finding.id, success: true };
   }

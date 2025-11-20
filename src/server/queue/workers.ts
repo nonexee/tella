@@ -11,6 +11,7 @@ import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
 import { auditScan, auditTask, auditTool, auditFinding } from '../utils/audit-logger.js';
 import { AgentOrchestrator, AgentRunner } from '../ai/agent-orchestrator.js';
+import { triggerWebhookEvent } from '../services/webhook-service.js';
 import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
 import { QUEUE_NAMES } from './scan-queue.js';
 
@@ -43,17 +44,39 @@ export const scanWorker = new Worker<ScanJobData>(
 
     try {
       // Update scan status to RUNNING
-      await prisma.scan.update({
+      const scan = await prisma.scan.update({
         where: { id: scanId },
         data: {
           status: 'RUNNING',
           startedAt: new Date(),
           progress: 0
+        },
+        include: {
+          target: true
         }
       });
 
       // Audit log: Scan started
       await auditScan.started(scanId, { targetId, userId, config });
+
+      // Trigger webhook for scan started
+      try {
+        await triggerWebhookEvent('SCAN_STARTED', {
+          scan: {
+            id: scan.id,
+            name: scan.name,
+            status: scan.status,
+            startedAt: scan.startedAt
+          },
+          target: {
+            id: scan.target.id,
+            name: scan.target.name,
+            url: scan.target.url
+          }
+        });
+      } catch (webhookError) {
+        logger.error('Failed to trigger SCAN_STARTED webhook:', webhookError);
+      }
 
       // Initialize orchestrator and create agents + tasks
       const orchestrator = new AgentOrchestrator();
@@ -74,14 +97,37 @@ export const scanWorker = new Worker<ScanJobData>(
       await auditScan.failed(scanId, error.message || 'Unknown error during scan execution', { error: error.stack });
 
       // Update scan status to FAILED with error message
-      await prisma.scan.update({
+      const failedScan = await prisma.scan.update({
         where: { id: scanId },
         data: {
           status: 'FAILED',
           error: error.message || 'Unknown error during scan execution',
           completedAt: new Date()
+        },
+        include: {
+          target: true
         }
       });
+
+      // Trigger webhook for scan failed
+      try {
+        await triggerWebhookEvent('SCAN_FAILED', {
+          scan: {
+            id: failedScan.id,
+            name: failedScan.name,
+            status: failedScan.status,
+            error: failedScan.error,
+            completedAt: failedScan.completedAt
+          },
+          target: {
+            id: failedScan.target.id,
+            name: failedScan.target.name,
+            url: failedScan.target.url
+          }
+        });
+      } catch (webhookError) {
+        logger.error('Failed to trigger SCAN_FAILED webhook:', webhookError);
+      }
 
       throw error; // Re-throw to mark job as failed
     }
@@ -493,12 +539,21 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
       // Update scan status - mark as completed even if some tasks failed
       // The scan worker will handle this, but we update progress here
-      await prisma.scan.update({
+      const completedScan = await prisma.scan.update({
         where: { id: scanId },
         data: {
           progress: 100,
           completedAt: new Date(),
           status: finalStatus
+        },
+        include: {
+          target: true,
+          findings: {
+            select: {
+              id: true,
+              severity: true
+            }
+          }
         }
       });
 
@@ -510,6 +565,60 @@ async function checkScanCompletion(scanId: string): Promise<void> {
       }
 
       logger.info(`Scan ${scanId} marked as ${finalStatus}`);
+
+      // Trigger webhooks based on final status
+      try {
+        const findingCounts = completedScan.findings.reduce((acc, f) => {
+          acc[f.severity] = (acc[f.severity] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+
+        if (finalStatus === 'COMPLETED') {
+          await triggerWebhookEvent('SCAN_COMPLETED', {
+            scan: {
+              id: completedScan.id,
+              name: completedScan.name,
+              status: completedScan.status,
+              progress: completedScan.progress,
+              completedAt: completedScan.completedAt
+            },
+            target: {
+              id: completedScan.target.id,
+              name: completedScan.target.name,
+              url: completedScan.target.url
+            },
+            summary: {
+              totalTasks: tasks.length,
+              completedTasks,
+              failedTasks,
+              totalFindings: completedScan.findings.length,
+              findingsBySeverity: findingCounts
+            }
+          });
+        } else {
+          await triggerWebhookEvent('SCAN_FAILED', {
+            scan: {
+              id: completedScan.id,
+              name: completedScan.name,
+              status: completedScan.status,
+              error: 'All tasks failed',
+              completedAt: completedScan.completedAt
+            },
+            target: {
+              id: completedScan.target.id,
+              name: completedScan.target.name,
+              url: completedScan.target.url
+            },
+            summary: {
+              totalTasks: tasks.length,
+              completedTasks,
+              failedTasks
+            }
+          });
+        }
+      } catch (webhookError) {
+        logger.error(`Failed to trigger webhook for scan ${finalStatus}:`, webhookError);
+      }
     } else {
       // Calculate progress based on completed tasks
       const completedCount = tasks.filter(t =>
