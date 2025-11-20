@@ -12,10 +12,11 @@
  * - Replaced all 'any' types with proper types
  */
 
-import { User, Scan, Agent, Task, Finding, Target, Tool } from '@prisma/client';
+import { User, Scan, Agent, Task, Finding, Target, Tool, Webhook } from '@prisma/client';
 import { GraphQLError, ValueNode } from 'graphql';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
+import { WebhookService } from '../services/webhook-service.js';
 import {
   hashPassword,
   comparePassword,
@@ -526,6 +527,62 @@ export const resolvers = {
           tool: true,
           agent: true
         }
+      });
+    },
+
+    // Webhook queries
+    webhooks: async (
+      _parent: unknown,
+      _args: unknown,
+      context: Context
+    ): Promise<Webhook[]> => {
+      const user = requireAuth(context);
+
+      return prisma.webhook.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' }
+      });
+    },
+
+    webhook: async (
+      _parent: unknown,
+      { id }: { id: string },
+      context: Context
+    ): Promise<Webhook | null> => {
+      const user = requireAuth(context);
+
+      const webhook = await prisma.webhook.findUnique({
+        where: { id }
+      });
+
+      // Check ownership
+      if (webhook && webhook.userId !== user.id) {
+        throw new GraphQLError('Access denied');
+      }
+
+      return webhook;
+    },
+
+    webhookDeliveries: async (
+      _parent: unknown,
+      { webhookId }: { webhookId: string },
+      context: Context
+    ) => {
+      const user = requireAuth(context);
+
+      // Check webhook ownership
+      const webhook = await prisma.webhook.findUnique({
+        where: { id: webhookId }
+      });
+
+      if (!webhook || webhook.userId !== user.id) {
+        throw new GraphQLError('Webhook not found or access denied');
+      }
+
+      return prisma.webhookDelivery.findMany({
+        where: { webhookId },
+        orderBy: { createdAt: 'desc' },
+        take: 50 // Limit to last 50 deliveries
       });
     },
 
@@ -1432,6 +1489,149 @@ export const resolvers = {
           error: error.message || 'Failed to generate report',
         };
       }
+    },
+
+    // Webhook mutations
+    createWebhook: async (
+      _parent: unknown,
+      { name, url, events }: { name: string; url: string; events: string[] },
+      context: Context
+    ): Promise<Webhook> => {
+      const user = requireAuth(context);
+
+      // Validate URL
+      try {
+        new URL(url);
+      } catch {
+        throw new GraphQLError('Invalid webhook URL');
+      }
+
+      // Validate events
+      const validEvents = [
+        'SCAN_COMPLETED',
+        'SCAN_FAILED',
+        'SCAN_STARTED',
+        'FINDING_CREATED',
+        'FINDING_HIGH_SEVERITY',
+        'FINDING_CRITICAL'
+      ];
+
+      const invalidEvents = events.filter(e => !validEvents.includes(e));
+      if (invalidEvents.length > 0) {
+        throw new GraphQLError(`Invalid webhook events: ${invalidEvents.join(', ')}`);
+      }
+
+      // Generate secret
+      const secret = WebhookService.generateSecret();
+
+      const webhook = await prisma.webhook.create({
+        data: {
+          id: uuidv4(),
+          name,
+          url,
+          events,
+          secret,
+          userId: user.id
+        }
+      });
+
+      logger.info('Webhook created', { userId: user.id, webhookId: webhook.id });
+      return webhook;
+    },
+
+    updateWebhook: async (
+      _parent: unknown,
+      { id, name, url, events, active }: {
+        id: string;
+        name?: string;
+        url?: string;
+        events?: string[];
+        active?: boolean
+      },
+      context: Context
+    ): Promise<Webhook> => {
+      const user = requireAuth(context);
+
+      // Check ownership
+      const existing = await prisma.webhook.findUnique({ where: { id } });
+      if (!existing || existing.userId !== user.id) {
+        throw new GraphQLError('Webhook not found or access denied');
+      }
+
+      const updateData: any = {};
+
+      if (name !== undefined) updateData.name = name;
+      if (active !== undefined) updateData.active = active;
+
+      if (url !== undefined) {
+        try {
+          new URL(url);
+          updateData.url = url;
+        } catch {
+          throw new GraphQLError('Invalid webhook URL');
+        }
+      }
+
+      if (events !== undefined) {
+        const validEvents = [
+          'SCAN_COMPLETED',
+          'SCAN_FAILED',
+          'SCAN_STARTED',
+          'FINDING_CREATED',
+          'FINDING_HIGH_SEVERITY',
+          'FINDING_CRITICAL'
+        ];
+
+        const invalidEvents = events.filter(e => !validEvents.includes(e));
+        if (invalidEvents.length > 0) {
+          throw new GraphQLError(`Invalid webhook events: ${invalidEvents.join(', ')}`);
+        }
+
+        updateData.events = events;
+      }
+
+      const webhook = await prisma.webhook.update({
+        where: { id },
+        data: updateData
+      });
+
+      logger.info('Webhook updated', { userId: user.id, webhookId: id });
+      return webhook;
+    },
+
+    deleteWebhook: async (
+      _parent: unknown,
+      { id }: { id: string },
+      context: Context
+    ): Promise<boolean> => {
+      const user = requireAuth(context);
+
+      // Check ownership
+      const webhook = await prisma.webhook.findUnique({ where: { id } });
+      if (!webhook || webhook.userId !== user.id) {
+        throw new GraphQLError('Webhook not found or access denied');
+      }
+
+      await prisma.webhook.delete({ where: { id } });
+      logger.info('Webhook deleted', { userId: user.id, webhookId: id });
+      return true;
+    },
+
+    testWebhook: async (
+      _parent: unknown,
+      { id }: { id: string },
+      context: Context
+    ): Promise<boolean> => {
+      const user = requireAuth(context);
+
+      // Check ownership
+      const webhook = await prisma.webhook.findUnique({ where: { id } });
+      if (!webhook || webhook.userId !== user.id) {
+        throw new GraphQLError('Webhook not found or access denied');
+      }
+
+      const success = await WebhookService.testWebhook(id);
+      return success;
     },
 
     createAgent: async (

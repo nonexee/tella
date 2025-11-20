@@ -419,6 +419,11 @@ type Query {
   # Tool Executions
   toolExecutions(agentId: ID, toolId: ID): [ToolExecution!]!
 
+  # Webhooks
+  webhooks: [Webhook!]!
+  webhook(id: ID!): Webhook
+  webhookDeliveries(webhookId: ID!): [WebhookDelivery!]!
+
   # Knowledge Base
   knowledgeBase(category: String, tags: [String!]): [KnowledgeBase!]!
   searchKnowledge(query: String!): [KnowledgeBase!]!
@@ -507,6 +512,22 @@ type Mutation {
   cancelScan(id: ID!): Scan!
   deleteScan(id: ID!): Boolean!
   exportScanReport(id: ID!, format: ReportFormat!): ExportResult!
+
+  # Webhooks
+  createWebhook(
+    name: String!
+    url: String!
+    events: [String!]!
+  ): Webhook!
+  updateWebhook(
+    id: ID!
+    name: String
+    url: String
+    events: [String!]
+    active: Boolean
+  ): Webhook!
+  deleteWebhook(id: ID!): Boolean!
+  testWebhook(id: ID!): Boolean!
 
   # Agents
   createAgent(
@@ -627,6 +648,56 @@ type AgentExecutionResult {
   result: JSON
   error: String
   observations: String!
+}
+
+# ============================================
+# Webhooks
+# ============================================
+
+type Webhook {
+  id: ID!
+  name: String!
+  url: String!
+  events: [String!]!
+  active: Boolean!
+  userId: ID!
+  user: User!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  lastSuccess: DateTime
+  lastFailure: DateTime
+  failureCount: Int!
+  deliveries: [WebhookDelivery!]!
+}
+
+type WebhookDelivery {
+  id: ID!
+  webhookId: ID!
+  webhook: Webhook!
+  event: String!
+  payload: JSON!
+  status: WebhookDeliveryStatus!
+  statusCode: Int
+  response: String
+  attempts: Int!
+  createdAt: DateTime!
+  deliveredAt: DateTime
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  RETRYING
+}
+
+enum WebhookEvent {
+  SCAN_COMPLETED
+  SCAN_FAILED
+  SCAN_STARTED
+  FINDING_CREATED
+  FINDING_HIGH_SEVERITY
+  FINDING_CRITICAL
 }
 
 # ============================================

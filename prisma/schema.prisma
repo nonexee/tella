@@ -22,6 +22,7 @@ model User {
 
   scans     Scan[]
   apiKeys   ApiKey[]
+  webhooks  Webhook[]
 }
 
 enum Role {
@@ -409,4 +410,51 @@ enum AuditSeverity {
   WARNING
   ERROR
   CRITICAL
+}
+
+// Webhook integration
+model Webhook {
+  id          String        @id @default(uuid())
+  name        String
+  url         String
+  events      String[]      // Array of webhook events to subscribe to
+  secret      String        // HMAC secret for signature verification
+  active      Boolean       @default(true)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  lastSuccess DateTime?
+  lastFailure DateTime?
+  failureCount Int          @default(0)
+
+  deliveries WebhookDelivery[]
+
+  @@index([userId])
+  @@index([active])
+}
+
+model WebhookDelivery {
+  id           String   @id @default(uuid())
+  webhookId    String
+  webhook      Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  event        String
+  payload      Json
+  status       WebhookDeliveryStatus
+  statusCode   Int?
+  response     String?
+  attempts     Int      @default(1)
+  createdAt    DateTime @default(now())
+  deliveredAt  DateTime?
+
+  @@index([webhookId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  RETRYING
 }
