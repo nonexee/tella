@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  import TargetDetail from './TargetDetail.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -11,6 +12,8 @@
   let startingScan = false;
   let showEditTargetModal = false;
   let editingTarget: any = null;
+  let showTargetDetail = false;
+  let selectedTargetId: string | null = null;
 
   // New target form data
   let newTarget = {
@@ -170,6 +173,18 @@
       console.error('Failed to delete target:', err);
       alert('Network error: Failed to delete target');
     }
+  }
+
+  function openTargetDetail(targetId: string) {
+    selectedTargetId = targetId;
+    showTargetDetail = true;
+  }
+
+  function closeTargetDetail() {
+    showTargetDetail = false;
+    selectedTargetId = null;
+    // Refresh targets to get updated data
+    fetchTargets();
   }
 
   function openEditModal(target: any) {
@@ -368,7 +383,7 @@
     <div class="targets-grid">
       {#each targets as target (target.id)}
         <div class="target-card fade-in">
-          <div class="target-header">
+          <div class="target-header clickable" on:click={() => openTargetDetail(target.id)}>
             <span class="target-icon">{getTypeIcon(target.type)}</span>
             <div class="target-info">
               <h3>{target.name}</h3>
@@ -665,6 +680,11 @@
   </div>
 {/if}
 
+<!-- Target Detail Modal -->
+{#if showTargetDetail && selectedTargetId}
+  <TargetDetail targetId={selectedTargetId} onClose={closeTargetDetail} />
+{/if}
+
 <style>
   .targets-page {
     max-width: 1600px;
@@ -712,6 +732,22 @@
     align-items: flex-start;
     gap: 1rem;
     margin-bottom: 1rem;
+  }
+
+  .target-header.clickable {
+    cursor: pointer;
+    transition: background 0.2s ease;
+    padding: 0.5rem;
+    margin: -0.5rem;
+    border-radius: 8px;
+  }
+
+  .target-header.clickable:hover {
+    background: var(--bg-secondary);
+  }
+
+  .target-header.clickable:hover h3 {
+    color: var(--primary);
   }
 
   .target-icon {
