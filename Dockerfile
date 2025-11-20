@@ -36,7 +36,17 @@ LABEL security.scan="enabled"
 
 # Install security updates and runtime dependencies
 RUN apk --no-cache upgrade && \
-    apk add --no-cache dumb-init openssl nmap nmap-scripts
+    apk add --no-cache \
+    dumb-init \
+    openssl \
+    nmap \
+    nmap-scripts \
+    python3 \
+    py3-pip \
+    nikto \
+    git \
+    curl \
+    && pip3 install --no-cache-dir sqlmap
 
 WORKDIR /app
 
