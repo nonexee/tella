@@ -96,6 +96,15 @@
       <span class="icon">⚙️</span>
       <span>Settings</span>
     </button>
+
+    <button
+      class="nav-item"
+      class:active={activeView === 'profile'}
+      on:click={() => navigate('profile')}
+    >
+      <span class="icon">👤</span>
+      <span>Profile</span>
+    </button>
   </nav>
 
   <div class="sidebar-footer">

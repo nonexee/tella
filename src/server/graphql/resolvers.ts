@@ -1023,9 +1023,85 @@ export const resolvers = {
       }
     },
 
+    changePassword: async (
+      _parent: unknown,
+      { currentPassword, newPassword }: { currentPassword: string; newPassword: string },
+      context: Context
+    ): Promise<boolean> => {
+      const user = requireAuth(context);
+
+      // Validate new password strength
+      if (newPassword.length < 8) {
+        throw new GraphQLError('New password must be at least 8 characters long');
+      }
+
+      // Verify current password
+      const userWithPassword = await prisma.user.findUnique({
+        where: { id: user.id }
+      });
+
+      if (!userWithPassword) {
+        throw new GraphQLError('User not found');
+      }
+
+      const isValid = await bcrypt.compare(currentPassword, userWithPassword.password);
+      if (!isValid) {
+        throw new GraphQLError('Current password is incorrect');
+      }
+
+      // Hash new password and update
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword }
+      });
+
+      logger.info('Password changed successfully', { userId: user.id });
+      return true;
+    },
+
+    updateProfile: async (
+      _parent: unknown,
+      { name, email }: { name?: string; email?: string },
+      context: Context
+    ): Promise<any> => {
+      const user = requireAuth(context);
+
+      const updateData: any = {};
+
+      if (name !== undefined) {
+        if (name.trim().length === 0) {
+          throw new GraphQLError('Name cannot be empty');
+        }
+        updateData.name = name.trim();
+      }
+
+      if (email !== undefined) {
+        if (!validateEmail(email)) {
+          throw new GraphQLError('Invalid email format');
+        }
+
+        // Check if email is already in use by another user
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser && existingUser.id !== user.id) {
+          throw new GraphQLError('Email is already in use');
+        }
+
+        updateData.email = email.toLowerCase();
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: user.id },
+        data: updateData
+      });
+
+      logger.info('Profile updated successfully', { userId: user.id });
+      return updatedUser;
+    },
+
     createApiKey: async (
       _parent: unknown,
-      { expiresAt }: { expiresAt?: Date },
+      { name, expiresAt }: { name?: string; expiresAt?: Date },
       context: Context
     ) => {
       const user = requireAuth(context);
@@ -1033,12 +1109,14 @@ export const resolvers = {
       const apiKey = await prisma.apiKey.create({
         data: {
           id: uuidv4(),
+          name,
           key: `tella_${uuidv4().replace(/-/g, '')}`,
           userId: user.id,
           expiresAt
         }
       });
 
+      logger.info('API key created', { userId: user.id, apiKeyId: apiKey.id });
       return apiKey;
     },
 
@@ -1056,6 +1134,7 @@ export const resolvers = {
       }
 
       await prisma.apiKey.delete({ where: { id } });
+      logger.info('API key revoked', { userId: user.id, apiKeyId: id });
       return true;
     },
 
@@ -1777,6 +1856,15 @@ export const resolvers = {
   },
 
   // Field resolvers
+  User: {
+    apiKeys: async (parent: User) => {
+      return prisma.apiKey.findMany({
+        where: { userId: parent.id },
+        orderBy: { createdAt: 'desc' }
+      });
+    }
+  },
+
   Scan: {
     stats: async (parent: Scan) => {
       const [tasks, findings] = await Promise.all([

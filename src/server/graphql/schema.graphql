@@ -15,6 +15,7 @@ type User {
   createdAt: DateTime!
   updatedAt: DateTime!
   scans: [Scan!]!
+  apiKeys: [ApiKey!]!
 }
 
 enum Role {
@@ -31,6 +32,7 @@ type AuthPayload {
 
 type ApiKey {
   id: ID!
+  name: String
   key: String!
   userId: ID!
   createdAt: DateTime!
@@ -470,7 +472,9 @@ type Mutation {
   login(email: String!, password: String!): AuthPayload!
   register(email: String!, password: String!, name: String!): AuthPayload!
   refreshToken(refreshToken: String!): AuthPayload!
-  createApiKey(expiresAt: DateTime): ApiKey!
+  changePassword(currentPassword: String!, newPassword: String!): Boolean!
+  updateProfile(name: String, email: String): User!
+  createApiKey(name: String, expiresAt: DateTime): ApiKey!
   revokeApiKey(id: ID!): Boolean!
 
   # Targets

@@ -9,6 +9,7 @@
   import Console from './components/Console.svelte';
   import ScanConsole from './components/ScanConsole.svelte';
   import Settings from './components/Settings.svelte';
+  import Profile from './components/Profile.svelte';
   import Login from './components/Login.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import ErrorBoundary from './components/ErrorBoundary.svelte';
@@ -59,6 +60,8 @@
             <ScanConsole scanId={currentScanId} />
           {:else if currentView === 'settings'}
             <Settings />
+          {:else if currentView === 'profile'}
+            <Profile />
           {/if}
         </div>
       </div>
