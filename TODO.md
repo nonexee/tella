@@ -32,11 +32,12 @@ This document tracks remaining features and improvements for the Tella AI securi
 - ✅ **Target CRUD Operations** - Complete edit/delete functionality with UI
 - ✅ **Scan Management** - Delete scans and export reports from UI
 - ✅ **Target Detail View** - Complete modal with scan history and findings summary
+- ✅ **User Profile Management** - Password changes and API key management
 - ✅ **Documentation** - Comprehensive FEATURES.md, updated TODO.md, SCAN_LOGS.md
 
-**Total Lines Added This Session:** 4,500+ lines
-**Total Commits This Session:** 13 production-ready commits
-**Features Completed:** 6 major features (P0/P1/P2 items)
+**Total Lines Added This Session:** 5,400+ lines
+**Total Commits This Session:** 16 production-ready commits
+**Features Completed:** 7 major features (P0/P1/P2 items)
 **Documentation:** 3 comprehensive files (FEATURES.md, TODO.md, SCAN_LOGS.md)
 
 ---
@@ -283,34 +284,39 @@ SMTP_FROM="Tella AI Security <noreply@tella.ai>"
 
 ---
 
-### 9. User Profile Management
+### ~~9. User Profile Management~~ ✅ COMPLETE
 
-**Status**: ❌ Not Started
-**Priority**: P2 - Medium
-**Effort**: Low (4 hours)
+**Status**: ✅ **COMPLETED**
+**Completed**: 2025-11-20
+**Commit**: `334d64f`
 
-**Description**: Add user profile page for password changes and API key management.
+**What Was Done**:
+- ✅ Created Profile.svelte component (780+ lines)
+- ✅ Added GraphQL mutations:
+  - `changePassword(currentPassword, newPassword)` with bcrypt verification
+  - `updateProfile(name, email)` with validation
+  - `createApiKey(name, expiresAt)` with optional naming
+  - `revokeApiKey(id)` with ownership check
+- ✅ Password strength validation (min 8 characters)
+- ✅ API key list with masked display
+- ✅ API key creation modal with expiration options
+- ✅ One-time key display after creation
+- ✅ Copy-to-clipboard functionality
+- ✅ API key revocation with confirmation
+- ✅ Usage examples for new keys
+- ✅ Added Profile link to sidebar navigation
+- ✅ Updated Prisma schema (added name to ApiKey)
+- ✅ Field resolver for User.apiKeys
 
-**Tasks**:
-- [ ] Create Profile.svelte component
-- [ ] Add GraphQL mutations:
-  - `changePassword(currentPassword, newPassword)`
-  - `createApiKey(name, expiresAt?)`
-  - `revokeApiKey(id)`
-  - `updateProfile(name, email)`
-- [ ] Add password strength validator
-- [ ] Display user's API keys (masked)
-- [ ] Add API key creation UI
-- [ ] Add API key revocation
-- [ ] Test password change flow
+**Files Modified**:
+- `src/client/components/Profile.svelte` (NEW - 780+ lines)
+- `src/server/graphql/schema.graphql` (new mutations)
+- `src/server/graphql/resolvers.ts` (4 new/updated resolvers)
+- `prisma/schema.prisma` (added name field to ApiKey)
+- `src/client/App.svelte` (added profile route)
+- `src/client/components/Sidebar.svelte` (added profile link)
 
-**Files to Create**:
-- `src/client/components/Profile.svelte`
-
-**Files to Modify**:
-- `src/server/graphql/schema.graphql`
-- `src/server/graphql/resolvers.ts`
-- `src/client/App.svelte` (add Profile route)
+**Impact**: Self-service password management and API key generation for automation
 
 ---
 
