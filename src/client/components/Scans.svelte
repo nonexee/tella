@@ -365,6 +365,80 @@
     }
   }
 
+  async function deleteScan(scanId: string, scanName: string) {
+    if (!confirm(`Are you sure you want to delete "${scanName}"?\n\nThis will permanently delete the scan and all its findings. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation DeleteScan($id: ID!) {
+              deleteScan(id: $id)
+            }
+          `,
+          variables: { id: scanId }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.deleteScan) {
+        await fetchScans();
+      } else if (result.errors) {
+        alert('Failed to delete scan: ' + result.errors[0].message);
+      }
+    } catch (err) {
+      console.error('Failed to delete scan:', err);
+      alert('Network error: Failed to delete scan');
+    }
+  }
+
+  async function exportReport(scanId: string, format: 'JSON' | 'CSV' | 'PDF') {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation ExportScanReport($id: ID!, $format: ReportFormat!) {
+              exportScanReport(id: $id, format: $format) {
+                success
+                filename
+                downloadUrl
+                error
+              }
+            }
+          `,
+          variables: { id: scanId, format }
+        })
+      });
+
+      const result = await response.json();
+      if (result.data?.exportScanReport?.success) {
+        const downloadUrl = result.data.exportScanReport.downloadUrl;
+        // Trigger download
+        window.location.href = downloadUrl;
+      } else {
+        const error = result.data?.exportScanReport?.error || result.errors?.[0]?.message || 'Unknown error';
+        alert('Failed to export report: ' + error);
+      }
+    } catch (err) {
+      console.error('Failed to export report:', err);
+      alert('Network error: Failed to export report');
+    }
+  }
+
   function formatDate(dateString: string | null): string {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleString();
@@ -635,6 +709,22 @@
               >
                 <span>📊</span>
                 Details
+              </button>
+              <button
+                class="btn btn-sm btn-primary"
+                on:click|stopPropagation={() => exportReport(scan.id, 'PDF')}
+                title="Export as PDF"
+              >
+                <span>📄</span>
+                Export
+              </button>
+              <button
+                class="btn btn-sm btn-danger"
+                on:click|stopPropagation={() => deleteScan(scan.id, scan.name)}
+                title="Delete scan"
+              >
+                <span>🗑️</span>
+                Delete
               </button>
             {/if}
           </div>
