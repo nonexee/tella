@@ -12,6 +12,10 @@ type User {
   email: String!
   name: String!
   role: Role!
+  emailNotifications: Boolean!
+  notifyOnScanComplete: Boolean!
+  notifyOnScanFailed: Boolean!
+  notifyOnCriticalFinding: Boolean!
   createdAt: DateTime!
   updatedAt: DateTime!
   scans: [Scan!]!
@@ -479,6 +483,12 @@ type Mutation {
   refreshToken(refreshToken: String!): AuthPayload!
   changePassword(currentPassword: String!, newPassword: String!): Boolean!
   updateProfile(name: String, email: String): User!
+  updateNotificationPreferences(
+    emailNotifications: Boolean
+    notifyOnScanComplete: Boolean
+    notifyOnScanFailed: Boolean
+    notifyOnCriticalFinding: Boolean
+  ): User!
   createApiKey(name: String, expiresAt: DateTime): ApiKey!
   revokeApiKey(id: ID!): Boolean!
 

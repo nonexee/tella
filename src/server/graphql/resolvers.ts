@@ -1156,6 +1156,51 @@ export const resolvers = {
       return updatedUser;
     },
 
+    updateNotificationPreferences: async (
+      _parent: unknown,
+      {
+        emailNotifications,
+        notifyOnScanComplete,
+        notifyOnScanFailed,
+        notifyOnCriticalFinding
+      }: {
+        emailNotifications?: boolean;
+        notifyOnScanComplete?: boolean;
+        notifyOnScanFailed?: boolean;
+        notifyOnCriticalFinding?: boolean;
+      },
+      context: Context
+    ): Promise<any> => {
+      const user = requireAuth(context);
+
+      const updateData: any = {};
+
+      if (emailNotifications !== undefined) {
+        updateData.emailNotifications = emailNotifications;
+      }
+      if (notifyOnScanComplete !== undefined) {
+        updateData.notifyOnScanComplete = notifyOnScanComplete;
+      }
+      if (notifyOnScanFailed !== undefined) {
+        updateData.notifyOnScanFailed = notifyOnScanFailed;
+      }
+      if (notifyOnCriticalFinding !== undefined) {
+        updateData.notifyOnCriticalFinding = notifyOnCriticalFinding;
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: user.id },
+        data: updateData
+      });
+
+      logger.info('Notification preferences updated', {
+        userId: user.id,
+        preferences: updateData
+      });
+
+      return updatedUser;
+    },
+
     createApiKey: async (
       _parent: unknown,
       { name, expiresAt }: { name?: string; expiresAt?: Date },

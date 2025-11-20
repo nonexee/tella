@@ -20,6 +20,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Email notification preferences
+  emailNotifications Boolean  @default(true)
+  notifyOnScanComplete Boolean @default(true)
+  notifyOnScanFailed Boolean  @default(true)
+  notifyOnCriticalFinding Boolean @default(true)
+
   scans     Scan[]
   apiKeys   ApiKey[]
   webhooks  Webhook[]

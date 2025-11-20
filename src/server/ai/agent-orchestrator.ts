@@ -25,6 +25,7 @@ import { SecurityTools } from '../tools/security-tools.js';
 import { prisma } from '../utils/prisma.js';
 import { sanitizeError } from '../utils/security.js';
 import { triggerWebhookEvent } from '../services/webhook-service.js';
+import { emailService } from '../services/email-service.js';
 import pLimit from 'p-limit';
 
 const MAX_SHORT_TERM_MESSAGES = 50; // Prevent memory leak
@@ -1364,6 +1365,35 @@ As a reporter:
             name: scan.name
           }
         });
+
+        // Send email notification for critical findings
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: scan.userId }
+          });
+
+          if (user && user.emailNotifications && user.notifyOnCriticalFinding) {
+            const target = await prisma.target.findUnique({
+              where: { id: scan.targetId }
+            });
+
+            if (target) {
+              await emailService.sendCriticalFindingEmail(user.email, {
+                findingId: finding.id,
+                title: finding.title,
+                description: finding.description,
+                severity: finding.severity,
+                category: finding.category,
+                scanName: scan.name,
+                targetName: target.name,
+                targetUrl: target.url,
+                cvss: finding.cvss || undefined
+              });
+            }
+          }
+        } catch (emailError) {
+          logger.error('Failed to send critical finding email:', emailError);
+        }
       } else if (finding.severity === 'HIGH') {
         await triggerWebhookEvent('FINDING_HIGH_SEVERITY', {
           finding: {

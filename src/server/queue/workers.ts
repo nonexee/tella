@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { auditScan, auditTask, auditTool, auditFinding } from '../utils/audit-logger.js';
 import { AgentOrchestrator, AgentRunner } from '../ai/agent-orchestrator.js';
 import { triggerWebhookEvent } from '../services/webhook-service.js';
+import { emailService } from '../services/email-service.js';
 import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
 import { QUEUE_NAMES } from './scan-queue.js';
 
@@ -127,6 +128,26 @@ export const scanWorker = new Worker<ScanJobData>(
         });
       } catch (webhookError) {
         logger.error('Failed to trigger SCAN_FAILED webhook:', webhookError);
+      }
+
+      // Send email notification for scan failure
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: failedScan.userId }
+        });
+
+        if (user && user.emailNotifications && user.notifyOnScanFailed) {
+          await emailService.sendScanFailedEmail(user.email, {
+            scanId: failedScan.id,
+            scanName: failedScan.name,
+            targetName: failedScan.target.name,
+            targetUrl: failedScan.target.url,
+            error: failedScan.error || 'Unknown error during scan execution',
+            failedAt: failedScan.completedAt!
+          });
+        }
+      } catch (emailError) {
+        logger.error('Failed to send scan failed email:', emailError);
       }
 
       throw error; // Re-throw to mark job as failed
@@ -618,6 +639,51 @@ async function checkScanCompletion(scanId: string): Promise<void> {
         }
       } catch (webhookError) {
         logger.error(`Failed to trigger webhook for scan ${finalStatus}:`, webhookError);
+      }
+
+      // Send email notification for scan completion/failure
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: completedScan.userId }
+        });
+
+        if (user && user.emailNotifications) {
+          if (finalStatus === 'COMPLETED' && user.notifyOnScanComplete) {
+            // Calculate scan duration
+            let duration: string | undefined;
+            if (completedScan.startedAt && completedScan.completedAt) {
+              const durationMs = completedScan.completedAt.getTime() - completedScan.startedAt.getTime();
+              const minutes = Math.floor(durationMs / 60000);
+              const seconds = Math.floor((durationMs % 60000) / 1000);
+              duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+            }
+
+            await emailService.sendScanCompletedEmail(user.email, {
+              scanId: completedScan.id,
+              scanName: completedScan.name,
+              targetName: completedScan.target.name,
+              targetUrl: completedScan.target.url,
+              completedAt: completedScan.completedAt!,
+              totalFindings: completedScan.findings.length,
+              criticalFindings: findingCounts['CRITICAL'] || 0,
+              highFindings: findingCounts['HIGH'] || 0,
+              mediumFindings: findingCounts['MEDIUM'] || 0,
+              lowFindings: findingCounts['LOW'] || 0,
+              duration
+            });
+          } else if (finalStatus === 'FAILED' && user.notifyOnScanFailed) {
+            await emailService.sendScanFailedEmail(user.email, {
+              scanId: completedScan.id,
+              scanName: completedScan.name,
+              targetName: completedScan.target.name,
+              targetUrl: completedScan.target.url,
+              error: 'All tasks failed',
+              failedAt: completedScan.completedAt!
+            });
+          }
+        }
+      } catch (emailError) {
+        logger.error(`Failed to send email for scan ${finalStatus}:`, emailError);
       }
     } else {
       // Calculate progress based on completed tasks
