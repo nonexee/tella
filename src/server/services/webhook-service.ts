@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
+import { addWebhookJob } from '../queue/scan-queue.js';
 
 export interface WebhookPayload {
   event: string;
@@ -15,12 +16,11 @@ export interface WebhookPayload {
 }
 
 export class WebhookService {
-  private static readonly MAX_RETRIES = 3;
-  private static readonly RETRY_DELAYS = [1000, 5000, 15000]; // 1s, 5s, 15s
   private static readonly TIMEOUT_MS = 10000; // 10 seconds
 
   /**
    * Trigger webhooks for a specific event
+   * Queues webhook deliveries instead of executing immediately
    */
   static async triggerWebhooks(event: string, data: any): Promise<void> {
     try {
@@ -39,11 +39,11 @@ export class WebhookService {
         return;
       }
 
-      logger.info(`Triggering ${webhooks.length} webhooks for event: ${event}`);
+      logger.info(`Queueing ${webhooks.length} webhooks for event: ${event}`);
 
-      // Deliver to all webhooks concurrently
+      // Queue delivery for all webhooks
       await Promise.allSettled(
-        webhooks.map(webhook => this.deliverWebhook(webhook.id, event, data))
+        webhooks.map(webhook => this.queueWebhookDelivery(webhook.id, event, data))
       );
     } catch (error) {
       logger.error('Error triggering webhooks:', error);
@@ -51,13 +51,12 @@ export class WebhookService {
   }
 
   /**
-   * Deliver webhook with retry logic
+   * Queue webhook delivery (creates delivery record and adds to queue)
    */
-  static async deliverWebhook(
+  static async queueWebhookDelivery(
     webhookId: string,
     event: string,
-    data: any,
-    attempt: number = 1
+    data: any
   ): Promise<void> {
     try {
       const webhook = await prisma.webhook.findUnique({
@@ -69,77 +68,103 @@ export class WebhookService {
         return;
       }
 
-      // Create payload
-      const payload: WebhookPayload = {
-        event,
-        timestamp: new Date().toISOString(),
-        data
-      };
-
-      // Generate HMAC signature
-      const signature = this.generateSignature(payload, webhook.secret);
-
       // Create delivery record
       const delivery = await prisma.webhookDelivery.create({
         data: {
           webhookId,
           event,
-          payload,
+          payload: {
+            event,
+            timestamp: new Date().toISOString(),
+            data
+          },
           status: 'PENDING',
-          attempts: attempt
+          attempts: 0
         }
       });
 
-      try {
-        // Send HTTP request
-        const response = await fetch(webhook.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Webhook-Signature': signature,
-            'X-Webhook-Event': event,
-            'X-Webhook-Delivery': delivery.id,
-            'User-Agent': 'Tella-Webhook/1.0'
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(this.TIMEOUT_MS)
-        });
+      // Add to queue (BullMQ will handle retries)
+      await addWebhookJob({
+        webhookId,
+        event,
+        data,
+        deliveryId: delivery.id
+      });
 
-        const responseText = await response.text();
-
-        if (response.ok) {
-          // Success
-          await this.markDeliverySuccess(delivery.id, response.status, responseText);
-          await this.updateWebhookStats(webhookId, true);
-          logger.info(`Webhook delivered successfully: ${webhookId} (${event})`);
-        } else {
-          // HTTP error
-          throw new Error(`HTTP ${response.status}: ${responseText}`);
-        }
-      } catch (error: any) {
-        // Delivery failed
-        const errorMessage = error.message || 'Unknown error';
-        logger.warn(`Webhook delivery failed: ${webhookId} (attempt ${attempt}/${this.MAX_RETRIES})`, {
-          error: errorMessage
-        });
-
-        if (attempt < this.MAX_RETRIES) {
-          // Retry with exponential backoff
-          await this.markDeliveryRetrying(delivery.id, errorMessage);
-          const delay = this.RETRY_DELAYS[attempt - 1];
-
-          setTimeout(() => {
-            this.deliverWebhook(webhookId, event, data, attempt + 1);
-          }, delay);
-        } else {
-          // Max retries reached
-          await this.markDeliveryFailed(delivery.id, errorMessage);
-          await this.updateWebhookStats(webhookId, false);
-          logger.error(`Webhook delivery failed after ${this.MAX_RETRIES} attempts: ${webhookId}`);
-        }
-      }
+      logger.debug(`Webhook delivery queued: ${webhookId} (delivery: ${delivery.id})`);
     } catch (error) {
-      logger.error('Error in webhook delivery:', error);
+      logger.error('Error queueing webhook delivery:', error);
+    }
+  }
+
+  /**
+   * Deliver webhook (called by worker)
+   * This is the actual delivery logic executed by BullMQ worker
+   */
+  static async deliverWebhook(
+    webhookId: string,
+    event: string,
+    data: any,
+    deliveryId: string,
+    attemptNumber: number
+  ): Promise<void> {
+    const webhook = await prisma.webhook.findUnique({
+      where: { id: webhookId }
+    });
+
+    if (!webhook || !webhook.active) {
+      throw new Error(`Webhook ${webhookId} not found or inactive`);
+    }
+
+    // Get delivery record
+    const delivery = await prisma.webhookDelivery.findUnique({
+      where: { id: deliveryId }
+    });
+
+    if (!delivery) {
+      throw new Error(`Delivery ${deliveryId} not found`);
+    }
+
+    // Update attempt count
+    await prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: { attempts: attemptNumber }
+    });
+
+    // Create payload
+    const payload: WebhookPayload = {
+      event,
+      timestamp: new Date().toISOString(),
+      data
+    };
+
+    // Generate HMAC signature
+    const signature = this.generateSignature(payload, webhook.secret);
+
+    // Send HTTP request
+    const response = await fetch(webhook.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Signature': signature,
+        'X-Webhook-Event': event,
+        'X-Webhook-Delivery': deliveryId,
+        'User-Agent': 'Tella-Webhook/1.0'
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(this.TIMEOUT_MS)
+    });
+
+    const responseText = await response.text();
+
+    if (response.ok) {
+      // Success
+      await this.markDeliverySuccess(deliveryId, response.status, responseText);
+      await this.updateWebhookStats(webhookId, true);
+      logger.info(`Webhook delivered successfully: ${webhookId} (${event})`);
+    } else {
+      // HTTP error - throw to trigger BullMQ retry
+      throw new Error(`HTTP ${response.status}: ${responseText}`);
     }
   }
 
@@ -224,27 +249,12 @@ export class WebhookService {
   }
 
   /**
-   * Mark delivery as retrying
+   * Mark delivery as failed (called when all retries exhausted)
    */
-  private static async markDeliveryRetrying(
+  static async markDeliveryFailed(
     deliveryId: string,
-    error: string
-  ): Promise<void> {
-    await prisma.webhookDelivery.update({
-      where: { id: deliveryId },
-      data: {
-        status: 'RETRYING',
-        response: error.substring(0, 1000)
-      }
-    });
-  }
-
-  /**
-   * Mark delivery as failed
-   */
-  private static async markDeliveryFailed(
-    deliveryId: string,
-    error: string
+    error: string,
+    webhookId: string
   ): Promise<void> {
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },
@@ -253,6 +263,9 @@ export class WebhookService {
         response: error.substring(0, 1000)
       }
     });
+
+    // Update webhook stats
+    await this.updateWebhookStats(webhookId, false);
   }
 
   /**

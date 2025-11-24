@@ -11,9 +11,9 @@ import { prisma } from '../utils/prisma.js';
 import { logger } from '../utils/logger.js';
 import { auditScan, auditTask, auditTool, auditFinding } from '../utils/audit-logger.js';
 import { AgentOrchestrator, AgentRunner } from '../ai/agent-orchestrator.js';
-import { triggerWebhookEvent } from '../services/webhook-service.js';
+import { triggerWebhookEvent, WebhookService } from '../services/webhook-service.js';
 import { emailService } from '../services/email-service.js';
-import type { ScanJobData, TaskJobData, AgentJobData } from './scan-queue.js';
+import type { ScanJobData, TaskJobData, AgentJobData, WebhookJobData } from './scan-queue.js';
 import { QUEUE_NAMES } from './scan-queue.js';
 
 // Redis connection for workers
@@ -27,6 +27,7 @@ const connection = new Redis(redisUrl, {
 const SCAN_CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY || '2', 10);
 const TASK_CONCURRENCY = parseInt(process.env.TASK_CONCURRENCY || '10', 10);
 const AGENT_CONCURRENCY = parseInt(process.env.AGENT_CONCURRENCY || '5', 10);
+const WEBHOOK_CONCURRENCY = parseInt(process.env.WEBHOOK_CONCURRENCY || '10', 10);
 
 /**
  * Scan Worker - Orchestrates entire scan execution
@@ -754,6 +755,59 @@ function getDefaultRemediation(vulnType: string): string {
   return remediations[vulnType.toLowerCase()] || 'Review the vulnerability and apply appropriate security controls.';
 }
 
+/**
+ * Webhook Worker - Delivers webhooks with retry logic
+ */
+export const webhookWorker = new Worker<WebhookJobData>(
+  QUEUE_NAMES.WEBHOOKS,
+  async (job: Job<WebhookJobData>) => {
+    const { webhookId, event, data, deliveryId } = job.data;
+
+    logger.debug(`Processing webhook job: ${deliveryId}`, {
+      jobId: job.id,
+      webhookId,
+      event,
+      attempt: job.attemptsMade + 1
+    });
+
+    try {
+      // Deliver webhook (will throw if delivery fails)
+      await WebhookService.deliverWebhook(
+        webhookId,
+        event,
+        data,
+        deliveryId,
+        job.attemptsMade + 1
+      );
+
+      return { success: true, deliveryId };
+    } catch (error: any) {
+      logger.warn(`Webhook delivery failed (attempt ${job.attemptsMade + 1}):`, {
+        webhookId,
+        deliveryId,
+        error: error.message
+      });
+
+      // If this is the last attempt, mark as permanently failed
+      if (job.attemptsMade + 1 >= 3) {
+        await WebhookService.markDeliveryFailed(
+          deliveryId,
+          error.message,
+          webhookId
+        );
+        logger.error(`Webhook delivery permanently failed after 3 attempts: ${deliveryId}`);
+      }
+
+      // Re-throw to trigger BullMQ retry
+      throw error;
+    }
+  },
+  {
+    connection,
+    concurrency: WEBHOOK_CONCURRENCY
+  }
+);
+
 // Worker event handlers
 scanWorker.on('completed', (job) => {
   logger.info(`Scan worker completed job ${job.id}`);
@@ -779,13 +833,22 @@ agentWorker.on('failed', (job, err) => {
   logger.error(`Agent worker failed job ${job?.id}:`, err);
 });
 
+webhookWorker.on('completed', (job) => {
+  logger.debug(`Webhook worker completed job ${job.id}`);
+});
+
+webhookWorker.on('failed', (job, err) => {
+  logger.error(`Webhook worker failed job ${job?.id}:`, err);
+});
+
 // Graceful shutdown
 export async function closeWorkers() {
   logger.info('Closing BullMQ workers...');
   await Promise.all([
     scanWorker.close(),
     taskWorker.close(),
-    agentWorker.close()
+    agentWorker.close(),
+    webhookWorker.close()
   ]);
   logger.info('All workers closed');
 }
@@ -803,5 +866,6 @@ process.on('SIGINT', async () => {
 logger.info('BullMQ workers started', {
   scanConcurrency: SCAN_CONCURRENCY,
   taskConcurrency: TASK_CONCURRENCY,
-  agentConcurrency: AGENT_CONCURRENCY
+  agentConcurrency: AGENT_CONCURRENCY,
+  webhookConcurrency: WEBHOOK_CONCURRENCY
 });

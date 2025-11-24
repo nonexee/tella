@@ -36,7 +36,8 @@ connection.on('connect', () => {
 export const QUEUE_NAMES = {
   SCANS: 'scans',
   TASKS: 'tasks',
-  AGENTS: 'agents'
+  AGENTS: 'agents',
+  WEBHOOKS: 'webhooks'
 } as const;
 
 // Job types
@@ -62,6 +63,13 @@ export interface AgentJobData {
   scanId: string;
   type: string;
   role: string;
+}
+
+export interface WebhookJobData {
+  webhookId: string;
+  event: string;
+  data: any;
+  deliveryId: string;
 }
 
 // Queue options
@@ -108,10 +116,23 @@ export const agentQueue = new Queue<AgentJobData>(QUEUE_NAMES.AGENTS, {
   }
 });
 
+export const webhookQueue = new Queue<WebhookJobData>(QUEUE_NAMES.WEBHOOKS, {
+  ...defaultQueueOptions,
+  defaultJobOptions: {
+    ...defaultQueueOptions.defaultJobOptions,
+    attempts: 3, // 3 retry attempts for webhooks
+    backoff: {
+      type: 'exponential' as const,
+      delay: 1000 // Start with 1s, then 2s, then 4s
+    }
+  }
+});
+
 // Queue events for monitoring
 const scanQueueEvents = new QueueEvents(QUEUE_NAMES.SCANS, { connection });
 const taskQueueEvents = new QueueEvents(QUEUE_NAMES.TASKS, { connection });
 const agentQueueEvents = new QueueEvents(QUEUE_NAMES.AGENTS, { connection });
+const webhookQueueEvents = new QueueEvents(QUEUE_NAMES.WEBHOOKS, { connection });
 
 // Event handlers for scans
 scanQueueEvents.on('completed', ({ jobId }) => {
@@ -144,6 +165,19 @@ agentQueueEvents.on('failed', ({ jobId, failedReason }) => {
   logger.error(`Agent job ${jobId} failed: ${failedReason}`);
 });
 
+// Event handlers for webhooks
+webhookQueueEvents.on('completed', ({ jobId }) => {
+  logger.debug(`Webhook job ${jobId} completed`);
+});
+
+webhookQueueEvents.on('failed', ({ jobId, failedReason }) => {
+  logger.error(`Webhook job ${jobId} failed: ${failedReason}`);
+});
+
+webhookQueueEvents.on('retrying', ({ jobId, attemptsMade }) => {
+  logger.warn(`Webhook job ${jobId} retrying (attempt ${attemptsMade})`);
+});
+
 // Helper functions
 export async function addScanJob(data: ScanJobData, priority?: number) {
   return scanQueue.add('process-scan' as any, data, {
@@ -163,6 +197,12 @@ export async function addAgentJob(data: AgentJobData, priority?: number) {
   return agentQueue.add('process-agent' as any, data, {
     priority: priority || 0,
     jobId: `agent-${data.agentId}`
+  });
+}
+
+export async function addWebhookJob(data: WebhookJobData) {
+  return webhookQueue.add('deliver-webhook' as any, data, {
+    jobId: `webhook-${data.deliveryId}` // Prevent duplicate deliveries
   });
 }
 
@@ -204,7 +244,8 @@ export async function getAllQueueStats() {
   return Promise.all([
     getQueueStats(QUEUE_NAMES.SCANS),
     getQueueStats(QUEUE_NAMES.TASKS),
-    getQueueStats(QUEUE_NAMES.AGENTS)
+    getQueueStats(QUEUE_NAMES.AGENTS),
+    getQueueStats(QUEUE_NAMES.WEBHOOKS)
   ]);
 }
 
@@ -222,6 +263,8 @@ function getQueueByName(name: string): Queue {
       return taskQueue;
     case QUEUE_NAMES.AGENTS:
       return agentQueue;
+    case QUEUE_NAMES.WEBHOOKS:
+      return webhookQueue;
     default:
       throw new Error(`Unknown queue: ${name}`);
   }
@@ -234,9 +277,11 @@ export async function closeQueues() {
     scanQueue.close(),
     taskQueue.close(),
     agentQueue.close(),
+    webhookQueue.close(),
     scanQueueEvents.close(),
     taskQueueEvents.close(),
     agentQueueEvents.close(),
+    webhookQueueEvents.close(),
     connection.quit()
   ]);
   logger.info('All queues closed');
