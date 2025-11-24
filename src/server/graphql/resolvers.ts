@@ -1173,6 +1173,26 @@ export const resolvers = {
     ): Promise<any> => {
       const user = requireAuth(context);
 
+      // Validate that all provided values are actually booleans
+      const validateBoolean = (value: any, field: string): void => {
+        if (value !== undefined && typeof value !== 'boolean') {
+          throw new Error(`${field} must be a boolean value (true or false)`);
+        }
+      };
+
+      validateBoolean(emailNotifications, 'emailNotifications');
+      validateBoolean(notifyOnScanComplete, 'notifyOnScanComplete');
+      validateBoolean(notifyOnScanFailed, 'notifyOnScanFailed');
+      validateBoolean(notifyOnCriticalFinding, 'notifyOnCriticalFinding');
+
+      // Check that at least one field is being updated
+      if (emailNotifications === undefined &&
+          notifyOnScanComplete === undefined &&
+          notifyOnScanFailed === undefined &&
+          notifyOnCriticalFinding === undefined) {
+        throw new Error('At least one notification preference must be provided');
+      }
+
       const updateData: any = {};
 
       if (emailNotifications !== undefined) {

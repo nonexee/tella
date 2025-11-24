@@ -559,13 +559,32 @@ export class EmailService {
   }
 
   /**
-   * Strip HTML tags from text (simple implementation)
+   * Strip HTML tags and decode entities for plain text email fallback
+   * Improved version with entity decoding and line break preservation
    */
   private stripHtml(html: string): string {
     return html
+      // Remove style and script tags with their contents
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      // Convert common block elements to line breaks
+      .replace(/<\/?(div|p|br|h[1-6]|li|tr)[^>]*>/gi, '\n')
+      // Remove all other HTML tags
       .replace(/<[^>]+>/g, '')
-      .replace(/\s+/g, ' ')
+      // Decode common HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
+      .replace(/&amp;/g, '&')
+      // Decode numeric entities
+      .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+      .replace(/&#x([0-9a-f]+);/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+      // Clean up excessive whitespace while preserving line breaks
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s+/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
 }

@@ -101,6 +101,37 @@ export function validateEnvironment(): ValidationResult {
     warnings.push('LOG_LEVEL not set, using default (info)');
   }
 
+  // CRITICAL IN PRODUCTION: APP_URL for email links
+  if (!process.env.APP_URL) {
+    if (IS_PRODUCTION) {
+      errors.push('APP_URL is required in production (used for email notification links)');
+    } else {
+      warnings.push('APP_URL not set - email links will default to http://localhost:3000');
+    }
+  } else {
+    // Validate URL format
+    try {
+      const url = new URL(process.env.APP_URL);
+
+      // Check for localhost in production
+      if (IS_PRODUCTION && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+        errors.push('APP_URL cannot be localhost in production - email links will not work for remote users');
+      }
+
+      // Check for proper protocol
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        errors.push('APP_URL must use http:// or https:// protocol');
+      }
+
+      // Warn about http in production
+      if (IS_PRODUCTION && url.protocol === 'http:' && url.hostname !== 'localhost') {
+        warnings.push('APP_URL uses http:// in production - consider using https:// for security');
+      }
+    } catch (error) {
+      errors.push('APP_URL is not a valid URL');
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
