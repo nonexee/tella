@@ -53,15 +53,22 @@ export interface ScanFailedData {
 export class EmailService {
   private transporter: Transporter | null = null;
   private enabled: boolean = false;
+  private initialized: boolean = false;
 
   constructor() {
-    this.initialize();
+    // Don't initialize immediately - use lazy initialization
   }
 
   /**
-   * Initialize email transporter with SMTP configuration
+   * Initialize email transporter with SMTP configuration (lazy initialization)
    */
   private initialize(): void {
+    if (this.initialized) {
+      return;
+    }
+
+    this.initialized = true;
+
     const smtpHost = process.env.SMTP_HOST;
     const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
     const smtpUser = process.env.SMTP_USER;
@@ -69,7 +76,11 @@ export class EmailService {
 
     // Email is optional - only enable if all SMTP settings are provided
     if (!smtpHost || !smtpUser || !smtpPass) {
-      logger.info('Email service disabled - SMTP configuration not provided');
+      logger.warn('Email service disabled - SMTP configuration not provided', {
+        hasHost: !!smtpHost,
+        hasUser: !!smtpUser,
+        hasPass: !!smtpPass
+      });
       this.enabled = false;
       return;
     }
@@ -98,10 +109,48 @@ export class EmailService {
   }
 
   /**
+   * Reinitialize the email service (useful if config changes)
+   */
+  reinitialize(): void {
+    this.initialized = false;
+    this.enabled = false;
+    this.transporter = null;
+    this.initialize();
+  }
+
+  /**
    * Check if email service is enabled
+   * Triggers lazy initialization on first call
    */
   isEnabled(): boolean {
+    if (!this.initialized) {
+      this.initialize();
+    }
     return this.enabled && this.transporter !== null;
+  }
+
+  /**
+   * Health check for email service
+   */
+  async healthCheck(): Promise<{ healthy: boolean; error?: string }> {
+    if (!this.isEnabled()) {
+      return {
+        healthy: false,
+        error: 'Email service not enabled - SMTP configuration missing'
+      };
+    }
+
+    try {
+      // Verify SMTP connection
+      await this.transporter!.verify();
+      return { healthy: true };
+    } catch (error: any) {
+      logger.error('Email service health check failed:', error);
+      return {
+        healthy: false,
+        error: error.message || 'SMTP connection failed'
+      };
+    }
   }
 
   /**
