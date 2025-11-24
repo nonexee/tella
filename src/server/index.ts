@@ -506,11 +506,46 @@ async function initializeServer() {
       shutdown('UNHANDLED_REJECTION');
     });
 
+    // Start periodic cleanup jobs
+    startCleanupJobs();
+
     return { app, httpServer, apolloServer };
   } catch (error) {
     logger.error('Failed to initialize server:', error);
     throw error;
   }
+}
+
+/**
+ * Start periodic cleanup jobs
+ */
+function startCleanupJobs() {
+  // Import webhook service for cleanup
+  import('./services/webhook-service.js').then(({ WebhookService }) => {
+    // Cleanup webhook deliveries daily at 2 AM
+    const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+    const RETENTION_DAYS = parseInt(process.env.WEBHOOK_DELIVERY_RETENTION_DAYS || '30', 10);
+
+    // Run cleanup immediately on startup
+    logger.info('Running initial webhook delivery cleanup');
+    WebhookService.cleanupOldDeliveries(RETENTION_DAYS).catch(error => {
+      logger.error('Initial webhook cleanup failed:', error);
+    });
+
+    // Schedule recurring cleanup
+    setInterval(async () => {
+      try {
+        logger.debug('Running scheduled webhook delivery cleanup');
+        await WebhookService.cleanupOldDeliveries(RETENTION_DAYS);
+      } catch (error) {
+        logger.error('Scheduled webhook cleanup failed:', error);
+      }
+    }, CLEANUP_INTERVAL);
+
+    logger.info(`Webhook delivery cleanup scheduled (retention: ${RETENTION_DAYS} days, interval: 24h)`);
+  }).catch(error => {
+    logger.error('Failed to initialize cleanup jobs:', error);
+  });
 }
 
 // ============================================

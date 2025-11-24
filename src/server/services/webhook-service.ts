@@ -330,6 +330,31 @@ export class WebhookService {
       return false;
     }
   }
+
+  /**
+   * Cleanup old webhook delivery records
+   * Deletes deliveries older than retention days (default 30)
+   */
+  static async cleanupOldDeliveries(retentionDays: number = 30): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+      const result = await prisma.webhookDelivery.deleteMany({
+        where: {
+          createdAt: {
+            lt: cutoffDate
+          }
+        }
+      });
+
+      logger.info(`Cleaned up ${result.count} webhook deliveries older than ${retentionDays} days`);
+      return result.count;
+    } catch (error) {
+      logger.error('Failed to cleanup webhook deliveries:', error);
+      throw error;
+    }
+  }
 }
 
 // Helper function to trigger webhooks from other parts of the application
