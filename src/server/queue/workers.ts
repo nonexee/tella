@@ -30,6 +30,49 @@ const AGENT_CONCURRENCY = parseInt(process.env.AGENT_CONCURRENCY || '5', 10);
 const WEBHOOK_CONCURRENCY = parseInt(process.env.WEBHOOK_CONCURRENCY || '10', 10);
 
 /**
+ * Format scan duration with proper handling of hours, days, and edge cases
+ */
+function formatScanDuration(startedAt: Date | null, completedAt: Date | null): string | undefined {
+  if (!startedAt || !completedAt) {
+    return undefined;
+  }
+
+  try {
+    const durationMs = completedAt.getTime() - startedAt.getTime();
+
+    // Handle negative duration (invalid timestamps)
+    if (durationMs < 0) {
+      logger.warn('Invalid scan duration: completedAt is before startedAt', {
+        startedAt,
+        completedAt
+      });
+      return 'Invalid duration';
+    }
+
+    // Convert to various time units
+    const totalSeconds = Math.floor(durationMs / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    // Format based on duration length
+    if (days > 0) {
+      return `${days}d ${hours}h ${minutes}m`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  } catch (error) {
+    logger.error('Error formatting scan duration:', error);
+    return undefined;
+  }
+}
+
+/**
  * Scan Worker - Orchestrates entire scan execution
  */
 export const scanWorker = new Worker<ScanJobData>(
@@ -653,14 +696,8 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
         if (user && user.emailNotifications) {
           if (finalStatus === 'COMPLETED' && user.notifyOnScanComplete) {
-            // Calculate scan duration
-            let duration: string | undefined;
-            if (completedScan.startedAt && completedScan.completedAt) {
-              const durationMs = completedScan.completedAt.getTime() - completedScan.startedAt.getTime();
-              const minutes = Math.floor(durationMs / 60000);
-              const seconds = Math.floor((durationMs % 60000) / 1000);
-              duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-            }
+            // Calculate scan duration with proper formatting
+            const duration = formatScanDuration(completedScan.startedAt, completedScan.completedAt);
 
             await emailService.sendScanCompletedEmail(user.email, {
               scanId: completedScan.id,
