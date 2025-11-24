@@ -643,9 +643,12 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
       // Send email notification for scan completion/failure
       try {
-        const user = await prisma.user.findUnique({
-          where: { id: completedScan.userId }
-        });
+        if (!emailService.isEnabled()) {
+          logger.debug('Email service not enabled, skipping scan completion email');
+        } else {
+          const user = await prisma.user.findUnique({
+            where: { id: completedScan.userId }
+          });
 
         if (user && user.emailNotifications) {
           if (finalStatus === 'COMPLETED' && user.notifyOnScanComplete) {
@@ -681,6 +684,7 @@ async function checkScanCompletion(scanId: string): Promise<void> {
               failedAt: completedScan.completedAt!
             });
           }
+        }
         }
       } catch (emailError) {
         logger.error(`Failed to send email for scan ${finalStatus}:`, emailError);

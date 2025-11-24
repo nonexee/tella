@@ -154,9 +154,17 @@ export class EmailService {
    * Send scan completed notification
    */
   async sendScanCompletedEmail(userEmail: string, data: ScanCompletedData): Promise<boolean> {
-    const subject = `[Tella AI] Scan Completed: ${data.scanName}`;
+    // Escape all user-provided data
+    const safeData = {
+      ...data,
+      scanName: this.escapeHtml(data.scanName),
+      targetName: this.escapeHtml(data.targetName),
+      targetUrl: this.escapeHtml(data.targetUrl),
+      duration: data.duration ? this.escapeHtml(data.duration) : undefined
+    };
 
-    const html = this.generateScanCompletedHtml(data);
+    const subject = `[Tella AI] Scan Completed: ${data.scanName}`;
+    const html = this.generateScanCompletedHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
   }
@@ -165,9 +173,20 @@ export class EmailService {
    * Send critical finding notification
    */
   async sendCriticalFindingEmail(userEmail: string, data: CriticalFindingData): Promise<boolean> {
-    const subject = `[Tella AI] 🚨 Critical Finding: ${data.title}`;
+    // Escape all user-provided data
+    const safeData = {
+      ...data,
+      title: this.escapeHtml(data.title),
+      description: this.escapeHtml(data.description),
+      severity: this.escapeHtml(data.severity),
+      category: this.escapeHtml(data.category),
+      scanName: this.escapeHtml(data.scanName),
+      targetName: this.escapeHtml(data.targetName),
+      targetUrl: this.escapeHtml(data.targetUrl)
+    };
 
-    const html = this.generateCriticalFindingHtml(data);
+    const subject = `[Tella AI] 🚨 Critical Finding: ${data.title}`;
+    const html = this.generateCriticalFindingHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
   }
@@ -176,9 +195,17 @@ export class EmailService {
    * Send scan failed notification
    */
   async sendScanFailedEmail(userEmail: string, data: ScanFailedData): Promise<boolean> {
-    const subject = `[Tella AI] ❌ Scan Failed: ${data.scanName}`;
+    // Escape all user-provided data
+    const safeData = {
+      ...data,
+      scanName: this.escapeHtml(data.scanName),
+      targetName: this.escapeHtml(data.targetName),
+      targetUrl: this.escapeHtml(data.targetUrl),
+      error: this.escapeHtml(data.error)
+    };
 
-    const html = this.generateScanFailedHtml(data);
+    const subject = `[Tella AI] ❌ Scan Failed: ${data.scanName}`;
+    const html = this.generateScanFailedHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
   }
@@ -466,6 +493,20 @@ export class EmailService {
 </body>
 </html>
     `;
+  }
+
+  /**
+   * Escape HTML to prevent injection
+   */
+  private escapeHtml(text: string): string {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, (m) => map[m]);
   }
 
   /**
