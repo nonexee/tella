@@ -34,12 +34,8 @@ import { prisma } from './utils/prisma.js';
 import { initializeDatabase } from './utils/db-init.js';
 import { validateOrThrow } from './utils/env-validation.js';
 
-console.log('[DEBUG] Module loaded, about to load env...');
-
 // Load environment variables
 dotenv.config();
-
-console.log('[DEBUG] Environment loaded, continuing initialization...');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -103,23 +99,23 @@ const authLimiter = rateLimit({
 
 async function initializeServer() {
   try {
-    console.log('[DEBUG] Starting initializeServer...');
+    logger.debug('Starting server initialization');
 
     // Validate environment before starting
-    console.log('[DEBUG] Validating environment...');
+    logger.debug('Validating environment');
     validateOrThrow();
-    console.log('[DEBUG] Environment validated successfully');
+    logger.debug('Environment validated successfully');
 
     // Initialize database (auto-sync schema + seed)
-    console.log('[DEBUG] About to initialize database...');
+    logger.debug('Initializing database');
     await initializeDatabase();
-    console.log('[DEBUG] Database initialized successfully');
+    logger.debug('Database initialized successfully');
 
     // Initialize BullMQ workers
-    logger.info('Starting BullMQ workers...');
-    console.log('[DEBUG] About to import workers...');
+    logger.info('Starting BullMQ workers');
+    logger.debug('Importing workers module');
     await import('./queue/workers.js');
-    console.log('[DEBUG] Workers imported');
+    logger.debug('Workers module imported');
     logger.info('BullMQ workers started');
 
     // Load GraphQL schema asynchronously
@@ -521,10 +517,9 @@ async function initializeServer() {
 // Start Application
 // ============================================
 
-console.log('[DEBUG] About to call initializeServer()...');
+logger.debug('Starting application');
 
 initializeServer().catch((error) => {
-  console.log('[DEBUG] initializeServer() threw error:', error);
   logger.error('Failed to start server:', error);
   process.exit(1);
 });
