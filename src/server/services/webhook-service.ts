@@ -305,17 +305,30 @@ export class WebhookService {
 
   /**
    * Verify webhook signature (for receiving webhooks)
+   * Uses constant-time comparison to prevent timing attacks
    */
   static verifySignature(payload: string, signature: string, secret: string): boolean {
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex');
+    try {
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+      // timingSafeEqual requires buffers of the same length
+      // If lengths differ, return false without throwing
+      const signatureBuffer = Buffer.from(signature, 'hex');
+      const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+
+      if (signatureBuffer.length !== expectedBuffer.length) {
+        return false;
+      }
+
+      return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+    } catch (error) {
+      // Catch any errors (invalid hex, etc.) and return false
+      logger.debug('Webhook signature verification failed:', error);
+      return false;
+    }
   }
 }
 

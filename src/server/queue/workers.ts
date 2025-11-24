@@ -577,24 +577,31 @@ async function checkScanCompletion(scanId: string): Promise<void> {
       return;
     }
 
-    // Get all tasks for this scan
-    const tasks = await prisma.task.findMany({
-      where: { scanId },
-      select: { status: true }
-    });
+    // Use transaction to prevent race conditions
+    // This ensures tasks are counted atomically with the scan status update
+    const result = await prisma.$transaction(async (tx) => {
+      // Get all tasks for this scan within transaction
+      const tasks = await tx.task.findMany({
+        where: { scanId },
+        select: { status: true }
+      });
 
-    if (tasks.length === 0) {
-      logger.warn(`No tasks found for scan ${scanId}`);
-      return;
-    }
+      if (tasks.length === 0) {
+        logger.warn(`No tasks found for scan ${scanId}`);
+        return null;
+      }
 
-    // Check if all tasks are in terminal states (COMPLETED, FAILED, CANCELLED)
-    const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'];
-    const allTasksComplete = tasks.every(task =>
-      terminalStatuses.includes(task.status)
-    );
+      // Check if all tasks are in terminal states (COMPLETED, FAILED, CANCELLED)
+      const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'];
+      const allTasksComplete = tasks.every(task =>
+        terminalStatuses.includes(task.status)
+      );
 
-    if (allTasksComplete) {
+      if (!allTasksComplete) {
+        logger.debug(`Scan ${scanId} has incomplete tasks, skipping completion`);
+        return null;
+      }
+
       const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
       const failedTasks = tasks.filter(t => t.status === 'FAILED').length;
 
@@ -602,9 +609,8 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
       const finalStatus = failedTasks === tasks.length ? 'FAILED' : 'COMPLETED';
 
-      // Update scan status - mark as completed even if some tasks failed
-      // The scan worker will handle this, but we update progress here
-      const completedScan = await prisma.scan.update({
+      // Update scan status within transaction - prevents marking as complete if new tasks created
+      const completedScan = await tx.scan.update({
         where: { id: scanId },
         data: {
           progress: 100,
@@ -622,11 +628,27 @@ async function checkScanCompletion(scanId: string): Promise<void> {
         }
       });
 
+      return {
+        completedScan,
+        finalStatus,
+        completedTasks,
+        failedTasks,
+        totalTasks: tasks.length
+      };
+    });
+
+    // Transaction returned null, meaning scan not ready to complete
+    if (!result) {
+      return;
+    }
+
+    const { completedScan, finalStatus, completedTasks, failedTasks, totalTasks } = result;
+
       // Audit log: Scan completed or failed
       if (finalStatus === 'COMPLETED') {
-        await auditScan.completed(scanId, { completedTasks, failedTasks, totalTasks: tasks.length });
+        await auditScan.completed(scanId, { completedTasks, failedTasks, totalTasks });
       } else {
-        await auditScan.failed(scanId, 'All tasks failed', { completedTasks, failedTasks, totalTasks: tasks.length });
+        await auditScan.failed(scanId, 'All tasks failed', { completedTasks, failedTasks, totalTasks });
       }
 
       logger.info(`Scan ${scanId} marked as ${finalStatus}`);

@@ -1372,12 +1372,16 @@ As a reporter:
             where: { id: scan.userId }
           });
 
-          if (user && user.emailNotifications && user.notifyOnCriticalFinding) {
+          if (!user) {
+            logger.warn(`User not found for scan ${scan.id} (userId: ${scan.userId}) - possible data integrity issue`);
+          } else if (user.emailNotifications && user.notifyOnCriticalFinding) {
             const target = await prisma.target.findUnique({
               where: { id: scan.targetId }
             });
 
-            if (target) {
+            if (!target) {
+              logger.warn(`Target not found for scan ${scan.id} (targetId: ${scan.targetId}) - possible data integrity issue`);
+            } else {
               await emailService.sendCriticalFindingEmail(user.email, {
                 findingId: finding.id,
                 title: finding.title,
