@@ -653,90 +653,100 @@ async function checkScanCompletion(scanId: string): Promise<void> {
 
       logger.info(`Scan ${scanId} marked as ${finalStatus}`);
 
-      // Trigger webhooks based on final status
-      try {
-        const findingCounts = completedScan.findings.reduce((acc, f) => {
-          acc[f.severity] = (acc[f.severity] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
+      // Calculate finding counts once for both webhook and email
+      const findingCounts = completedScan.findings.reduce((acc, f) => {
+        acc[f.severity] = (acc[f.severity] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
 
-        if (finalStatus === 'COMPLETED') {
-          await triggerWebhookEvent('SCAN_COMPLETED', {
-            scan: {
-              id: completedScan.id,
-              name: completedScan.name,
-              status: completedScan.status,
-              progress: completedScan.progress,
-              completedAt: completedScan.completedAt
-            },
-            target: {
-              id: completedScan.target.id,
-              name: completedScan.target.name,
-              url: completedScan.target.url
-            },
-            summary: {
-              totalTasks: tasks.length,
-              completedTasks,
-              failedTasks,
-              totalFindings: completedScan.findings.length,
-              findingsBySeverity: findingCounts
+      // Execute webhooks and emails in parallel using Promise.allSettled
+      // This ensures both are attempted independently and don't block each other
+      const notificationResults = await Promise.allSettled([
+        // Webhook notification
+        (async () => {
+          try {
+            if (finalStatus === 'COMPLETED') {
+              await triggerWebhookEvent('SCAN_COMPLETED', {
+                scan: {
+                  id: completedScan.id,
+                  name: completedScan.name,
+                  status: completedScan.status,
+                  progress: completedScan.progress,
+                  completedAt: completedScan.completedAt
+                },
+                target: {
+                  id: completedScan.target.id,
+                  name: completedScan.target.name,
+                  url: completedScan.target.url
+                },
+                summary: {
+                  totalTasks: totalTasks,
+                  completedTasks,
+                  failedTasks,
+                  totalFindings: completedScan.findings.length,
+                  findingsBySeverity: findingCounts
+                }
+              });
+            } else {
+              await triggerWebhookEvent('SCAN_FAILED', {
+                scan: {
+                  id: completedScan.id,
+                  name: completedScan.name,
+                  status: completedScan.status,
+                  error: 'All tasks failed',
+                  completedAt: completedScan.completedAt
+                },
+                target: {
+                  id: completedScan.target.id,
+                  name: completedScan.target.name,
+                  url: completedScan.target.url
+                },
+                summary: {
+                  totalTasks: totalTasks,
+                  completedTasks,
+                  failedTasks
+                }
+              });
             }
-          });
-        } else {
-          await triggerWebhookEvent('SCAN_FAILED', {
-            scan: {
-              id: completedScan.id,
-              name: completedScan.name,
-              status: completedScan.status,
-              error: 'All tasks failed',
-              completedAt: completedScan.completedAt
-            },
-            target: {
-              id: completedScan.target.id,
-              name: completedScan.target.name,
-              url: completedScan.target.url
-            },
-            summary: {
-              totalTasks: tasks.length,
-              completedTasks,
-              failedTasks
+          } catch (webhookError) {
+            logger.error(`Failed to trigger webhook for scan ${finalStatus}:`, webhookError);
+            throw webhookError;
+          }
+        })(),
+
+        // Email notification
+        (async () => {
+          try {
+            if (!emailService.isEnabled()) {
+              logger.debug('Email service not enabled, skipping scan completion email');
+              return;
             }
-          });
-        }
-      } catch (webhookError) {
-        logger.error(`Failed to trigger webhook for scan ${finalStatus}:`, webhookError);
-      }
 
-      // Send email notification for scan completion/failure
-      try {
-        if (!emailService.isEnabled()) {
-          logger.debug('Email service not enabled, skipping scan completion email');
-        } else {
-          const user = await prisma.user.findUnique({
-            where: { id: completedScan.userId }
-          });
-
-        if (user && user.emailNotifications) {
-          if (finalStatus === 'COMPLETED' && user.notifyOnScanComplete) {
-            // Calculate scan duration with proper formatting
-            const duration = formatScanDuration(completedScan.startedAt, completedScan.completedAt);
-
-            await emailService.sendScanCompletedEmail(user.email, {
-              scanId: completedScan.id,
-              scanName: completedScan.name,
-              targetName: completedScan.target.name,
-              targetUrl: completedScan.target.url,
-              completedAt: completedScan.completedAt!,
-              totalFindings: completedScan.findings.length,
-              criticalFindings: findingCounts['CRITICAL'] || 0,
-              highFindings: findingCounts['HIGH'] || 0,
-              mediumFindings: findingCounts['MEDIUM'] || 0,
-              lowFindings: findingCounts['LOW'] || 0,
-              duration
+            const user = await prisma.user.findUnique({
+              where: { id: completedScan.userId }
             });
-          } else if (finalStatus === 'FAILED' && user.notifyOnScanFailed) {
-            await emailService.sendScanFailedEmail(user.email, {
-              scanId: completedScan.id,
+
+            if (user && user.emailNotifications) {
+              if (finalStatus === 'COMPLETED' && user.notifyOnScanComplete) {
+                // Calculate scan duration with proper formatting
+                const duration = formatScanDuration(completedScan.startedAt, completedScan.completedAt);
+
+                await emailService.sendScanCompletedEmail(user.email, {
+                  scanId: completedScan.id,
+                  scanName: completedScan.name,
+                  targetName: completedScan.target.name,
+                  targetUrl: completedScan.target.url,
+                  completedAt: completedScan.completedAt!,
+                  totalFindings: completedScan.findings.length,
+                  criticalFindings: findingCounts['CRITICAL'] || 0,
+                  highFindings: findingCounts['HIGH'] || 0,
+                  mediumFindings: findingCounts['MEDIUM'] || 0,
+                  lowFindings: findingCounts['LOW'] || 0,
+                  duration
+                });
+              } else if (finalStatus === 'FAILED' && user.notifyOnScanFailed) {
+                await emailService.sendScanFailedEmail(user.email, {
+                  scanId: completedScan.id,
               scanName: completedScan.name,
               targetName: completedScan.target.name,
               targetUrl: completedScan.target.url,
@@ -745,9 +755,38 @@ async function checkScanCompletion(scanId: string): Promise<void> {
             });
           }
         }
-        }
-      } catch (emailError) {
-        logger.error(`Failed to send email for scan ${finalStatus}:`, emailError);
+          } catch (emailError) {
+            logger.error(`Failed to send email for scan ${finalStatus}:`, emailError);
+            throw emailError;
+          }
+        })()
+      ]);
+
+      // Log results of notification attempts
+      const [webhookResult, emailResult] = notificationResults;
+
+      if (webhookResult.status === 'rejected') {
+        logger.warn('Webhook notification failed for scan completion', {
+          scanId: completedScan.id,
+          finalStatus,
+          error: webhookResult.reason
+        });
+      }
+
+      if (emailResult.status === 'rejected') {
+        logger.warn('Email notification failed for scan completion', {
+          scanId: completedScan.id,
+          finalStatus,
+          error: emailResult.reason
+        });
+      }
+
+      if (webhookResult.status === 'fulfilled' || emailResult.status === 'fulfilled') {
+        logger.debug('Scan notifications sent', {
+          scanId: completedScan.id,
+          webhookSuccess: webhookResult.status === 'fulfilled',
+          emailSuccess: emailResult.status === 'fulfilled'
+        });
       }
     } else {
       // Calculate progress based on completed tasks

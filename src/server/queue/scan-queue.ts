@@ -125,6 +125,11 @@ export const webhookQueue = new Queue<WebhookJobData>(QUEUE_NAMES.WEBHOOKS, {
       type: 'exponential' as const,
       delay: 1000 // Start with 1s, then 2s, then 4s
     }
+  },
+  // Add rate limiting to prevent overwhelming external webhook endpoints
+  limiter: {
+    max: parseInt(process.env.WEBHOOK_RATE_LIMIT_MAX || '10', 10), // Max jobs per duration
+    duration: parseInt(process.env.WEBHOOK_RATE_LIMIT_DURATION || '1000', 10) // Duration in ms (default 1 second)
   }
 });
 

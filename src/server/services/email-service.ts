@@ -54,9 +54,12 @@ export class EmailService {
   private transporter: Transporter | null = null;
   private enabled: boolean = false;
   private initialized: boolean = false;
+  private recentEmailHashes: Map<string, number> = new Map(); // Hash -> timestamp for deduplication
 
   constructor() {
     // Don't initialize immediately - use lazy initialization
+    // Start cleanup of old email hashes every 5 minutes
+    setInterval(() => this.cleanupRecentHashes(), 5 * 60 * 1000);
   }
 
   /**
@@ -154,12 +157,55 @@ export class EmailService {
   }
 
   /**
-   * Send email with retry logic
+   * Generate hash for email deduplication
+   */
+  private generateEmailHash(to: string, subject: string): string {
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(`${to}:${subject}`).digest('hex');
+  }
+
+  /**
+   * Clean up old email hashes (older than 1 hour)
+   */
+  private cleanupRecentHashes(): void {
+    const oneHourAgo = Date.now() - (60 * 60 * 1000);
+    let cleaned = 0;
+
+    for (const [hash, timestamp] of this.recentEmailHashes.entries()) {
+      if (timestamp < oneHourAgo) {
+        this.recentEmailHashes.delete(hash);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      logger.debug(`Cleaned up ${cleaned} old email hashes from deduplication cache`);
+    }
+  }
+
+  /**
+   * Send email with retry logic and deduplication
    */
   async sendEmail(options: EmailOptions, retries: number = 3): Promise<boolean> {
     if (!this.isEnabled()) {
       logger.debug('Email service not enabled, skipping email send');
       return false;
+    }
+
+    // Check for duplicate emails within the last hour
+    const emailHash = this.generateEmailHash(options.to, options.subject);
+    const recentlySent = this.recentEmailHashes.get(emailHash);
+
+    if (recentlySent) {
+      const timeSince = Date.now() - recentlySent;
+      if (timeSince < 60 * 60 * 1000) { // 1 hour deduplication window
+        logger.debug('Skipping duplicate email', {
+          to: options.to,
+          subject: options.subject,
+          timeSinceLastSent: `${Math.floor(timeSince / 1000)}s`
+        });
+        return false;
+      }
     }
 
     const from = process.env.SMTP_FROM || 'Tella AI Security <noreply@tella.ai>';
@@ -173,6 +219,9 @@ export class EmailService {
           html: options.html,
           text: options.text || this.stripHtml(options.html)
         });
+
+        // Mark this email as sent for deduplication
+        this.recentEmailHashes.set(emailHash, Date.now());
 
         logger.info('Email sent successfully', {
           to: options.to,
@@ -212,7 +261,7 @@ export class EmailService {
       duration: data.duration ? this.escapeHtml(data.duration) : undefined
     };
 
-    const subject = `[Tella AI] Scan Completed: ${data.scanName}`;
+    const subject = `[Tella AI Security] Scan Completed: ${data.scanName}`;
     const html = this.generateScanCompletedHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
@@ -234,7 +283,7 @@ export class EmailService {
       targetUrl: this.escapeHtml(data.targetUrl)
     };
 
-    const subject = `[Tella AI] 🚨 Critical Finding: ${data.title}`;
+    const subject = `[Tella AI Security] 🚨 Critical Finding: ${data.title}`;
     const html = this.generateCriticalFindingHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
@@ -253,7 +302,7 @@ export class EmailService {
       error: this.escapeHtml(data.error)
     };
 
-    const subject = `[Tella AI] ❌ Scan Failed: ${data.scanName}`;
+    const subject = `[Tella AI Security] ❌ Scan Failed: ${data.scanName}`;
     const html = this.generateScanFailedHtml(safeData);
 
     return this.sendEmail({ to: userEmail, subject, html });
